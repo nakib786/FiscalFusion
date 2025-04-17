@@ -1,0 +1,202 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import './animations.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 2%; /* Dark background */
+    --foreground: 0 0% 100%;
+    --card: 240 10% 4%;
+    --card-foreground: 0 0% 100%;
+    --popover: 240 10% 4%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 240 14% 10%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 240 10% 8%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 240 10% 8%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 240 10% 10%;
+    --input: 240 10% 10%;
+    --ring: 217.2 91.2% 59.8%;
+    --radius: 0.5rem;
+    
+    /* Brand colors for FiscalFusion */
+    --brand: 217.2 91.2% 59.8%;
+    --brand-foreground: 210 40% 98%;
+  }
+}
+
+/* Base styles */
+html,
+body {
+  padding: 0;
+  margin: 0;
+  /* Use Inter font */
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen,
+    Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif;
+  background-color: #050505;
+  color: white;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  
+  /* Smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+    color-scheme: dark;
+  }
+  
+  .container {
+    @apply mx-auto px-4 md:px-6 lg:px-8 max-w-7xl;
+  }
+  
+  .max-w-container {
+    @apply max-w-7xl;
+  }
+  
+  /* Apply dark styles to all sections */
+  section {
+    @apply bg-transparent;
+  }
+}
+
+@layer components {
+  .btn {
+    /* Added slight shadow, adjusted padding, and rounded corners */
+    @apply px-5 py-2.5 rounded-lg font-medium transition-all duration-200 ease-in-out shadow-sm hover:shadow-md;
+  }
+  
+  .btn-primary {
+    /* Updated with new primary color */
+    @apply bg-primary text-primary-foreground hover:bg-primary/90;
+  }
+  
+  .btn-secondary {
+    /* Added secondary button style */
+    @apply bg-secondary text-secondary-foreground hover:bg-secondary/90;
+  }
+
+  .btn-accent {
+    /* Added accent button style */
+    @apply bg-accent text-accent-foreground hover:bg-accent/90;
+  }
+
+  .btn-outline {
+    /* Updated for dark theme */
+    @apply border border-white/10 text-white hover:bg-white/5;
+  }
+  
+  /* Dashboard card styles - updated for dark theme */
+  .dashboard-card {
+    @apply bg-card/50 backdrop-blur-sm rounded-lg shadow-sm border border-white/5 transition-all duration-300 hover:shadow-md text-white;
+  }
+  
+  .dashboard-card-header {
+    @apply flex justify-between items-center mb-4;
+  }
+  
+  .dashboard-card-title {
+    @apply text-sm font-semibold text-gray-100 uppercase;
+  }
+  
+  .dashboard-card-value {
+    @apply text-2xl font-bold mb-1 text-white;
+  }
+  
+  .dashboard-card-subtitle {
+    @apply text-sm text-gray-300;
+  }
+  
+  /* Progress bar styles - updated for dark theme */
+  .progress-bar {
+    @apply w-full bg-muted rounded-full h-2 overflow-hidden;
+  }
+  
+  .progress-bar-fill {
+    @apply h-2 rounded-full;
+  }
+  
+  .progress-bar-fill-green {
+    @apply bg-green-500;
+  }
+  
+  .progress-bar-fill-blue {
+    @apply bg-blue-500;
+  }
+  
+  .progress-bar-fill-orange {
+    @apply bg-orange-500;
+  }
+  
+  .progress-bar-fill-gray {
+    @apply bg-gray-500;
+  }
+  
+  /* Status badge styles - updated for dark theme */
+  .status-badge {
+    @apply text-xs py-0.5 px-2 rounded;
+  }
+  
+  .status-badge-green {
+    @apply bg-green-900/50 text-green-400;
+  }
+  
+  .status-badge-blue {
+    @apply bg-blue-900/50 text-blue-400;
+  }
+  
+  .status-badge-orange {
+    @apply bg-orange-900/50 text-orange-400;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    color: white;
+    /* Dark mode gradient */
+    @apply bg-gradient-to-br from-secondary-900 to-secondary-800;
+  }
+  .btn-outline {
+    /* Dark mode outline button */
+    @apply border-secondary-600 text-secondary-300 hover:border-primary-400 hover:text-primary-400 hover:bg-primary-900;
+  }
+  
+  /* Dark mode dashboard cards */
+  .dashboard-card {
+    @apply bg-white/5 border-white/10;
+  }
+  
+  .dashboard-card-title {
+    @apply text-gray-300;
+  }
+  
+  .dashboard-card-value {
+    @apply text-white;
+  }
+  
+  .dashboard-card-subtitle {
+    @apply text-gray-400;
+  }
+  
+  /* Dark mode progress bars */
+  .progress-bar {
+    @apply bg-gray-700;
+  }
+} 
