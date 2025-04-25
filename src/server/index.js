@@ -11,9 +11,10 @@ const invoicesRoutes = require('./routes/invoices');
 const expensesRoutes = require('./routes/expenses');
 const clientsRoutes = require('./routes/clients');
 const reportsRoutes = require('./routes/reports');
+const adminRoutes = require('./routes/adminRoutes');
 
 // Database connection
-const db = require('./database/config');
+const mongodb = require('./database/mongodb-config');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -24,21 +25,25 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Test database connection
-db.testConnection()
+mongodb.testConnection()
   .then(connected => {
     if (connected) {
-      console.log('Connected to database successfully');
+      console.log('Connected to MongoDB successfully');
     } else {
-      console.warn('Using mock data - database connection failed');
+      console.error('Failed to connect to MongoDB');
+      console.error('Please ensure MongoDB is running and accessible');
+      console.error('Check your database configuration in .env file');
+      console.error('Expected configuration:');
+      console.error(`- URI: ${process.env.MONGODB_URI || 'mongodb://localhost:27017/fiscalfusion'}`);
       
       // Set an interval to periodically retry database connection
       const retryInterval = setInterval(async () => {
-        const reconnected = await db.testConnection();
+        const reconnected = await mongodb.testConnection();
         if (reconnected) {
-          console.log('Successfully reconnected to database!');
+          console.log('Successfully reconnected to MongoDB!');
           clearInterval(retryInterval);
         } else {
-          console.log('Database reconnection attempt failed, will retry...');
+          console.log('MongoDB reconnection attempt failed, will retry...');
         }
       }, 60000); // Retry every minute
     }
@@ -54,15 +59,16 @@ app.use('/api/invoices', invoicesRoutes);
 app.use('/api/expenses', expensesRoutes);
 app.use('/api/clients', clientsRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/admin', adminRoutes);
 
 // API health check endpoint
 app.get('/api/health', (req, res) => {
-  const dbStatus = db.getConnectionStatus() ? 'connected' : 'disconnected';
+  const dbStatus = mongodb.getConnectionStatus() ? 'connected' : 'disconnected';
   res.json({ 
     status: 'ok',
     message: 'API is running', 
     database: dbStatus,
-    using_mock: !db.getConnectionStatus() || process.env.USE_MOCK_DATA === 'true'
+    database_type: 'MongoDB'
   });
 });
 

@@ -1,84 +1,144 @@
-import { mockCashFlowData } from '../../data/mockData';
+import { ObjectId } from 'mongodb';
+import clientPromise from '../../lib/mongodb';
 
-// Simple in-memory database for transactions
-// In a production app, this would be replaced with a real database
-let transactionsDB = [];
-let isInitialized = false;
+// Next.js API route for transactions - connects directly to database
+export default async function handler(req, res) {
+  try {
+    // Connect to MongoDB using the shared client
+    const client = await clientPromise;
+    const db = client.db();
+    const collection = db.collection('transactions');
 
-// Initialize the database with mock data if it's empty
-function initializeDB(dateRange) {
-  if (!isInitialized) {
-    transactionsDB = generateTransactions(dateRange);
-    isInitialized = true;
+    // Handle different HTTP methods
+    switch (req.method) {
+      case 'GET':
+        return await handleGet(req, res, collection);
+      case 'PUT':
+        return await handleUpdate(req, res, collection);
+      case 'POST':
+        return await handleCreate(req, res, collection);
+      case 'DELETE':
+        return await handleDelete(req, res, collection);
+      default:
+        return res.status(405).json({ success: false, message: 'Method not allowed' });
+    }
+  } catch (error) {
+    console.error('MongoDB operation error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Database operation failed',
+      message: error.message
+    });
   }
-  return transactionsDB;
 }
 
-export default function handler(req, res) {
-  // Handle different HTTP methods
-  switch (req.method) {
-    case 'GET':
-      return handleGet(req, res);
-    case 'PUT':
-      return handleUpdate(req, res);
-    case 'POST':
-      return handleCreate(req, res);
-    default:
-      return res.status(405).json({ success: false, message: 'Method not allowed' });
-  }
-}
-
-function handleGet(req, res) {
-  const { dateRange = 'month', status, type, category, search, page = 1, limit = 50 } = req.query;
+async function handleGet(req, res, collection) {
+  const { 
+    id,
+    dateRange, 
+    status, 
+    type, 
+    category, 
+    search, 
+    page = 1, 
+    limit = 50 
+  } = req.query;
   
   try {
-    // Initialize or get the transactions
-    let transactions = initializeDB(dateRange);
-    
-    // Apply filters if provided
-    if (status) {
-      transactions = transactions.filter(t => t.status === status);
+    // If specific ID is provided
+    if (id) {
+      const transaction = await collection.findOne({ _id: new ObjectId(id) });
+      
+      if (!transaction) {
+        return res.status(404).json({
+          success: false,
+          error: 'Transaction not found'
+        });
+      }
+      
+      return res.status(200).json({
+        success: true,
+        data: transaction
+      });
     }
     
-    if (type) {
-      transactions = transactions.filter(t => t.type === type);
+    // Build MongoDB query
+    let query = {};
+    
+    // Date range filter
+    if (dateRange) {
+      let startDate = new Date();
+      
+      switch(dateRange) {
+        case 'week':
+          startDate.setDate(startDate.getDate() - 7);
+          break;
+        case 'month':
+          startDate.setMonth(startDate.getMonth() - 1);
+          break;
+        case 'quarter':
+          startDate.setMonth(startDate.getMonth() - 3);
+          break;
+        case 'year':
+          startDate.setFullYear(startDate.getFullYear() - 1);
+          break;
+        default:
+          startDate.setMonth(startDate.getMonth() - 1); // Default to month
+      }
+      
+      query.date = { $gte: startDate.toISOString() };
     }
+    
+    // Other filters
+    if (status) query.status = status;
+    if (type) query.type = type;
     
     if (category) {
       if (category === 'uncategorized') {
-        transactions = transactions.filter(t => !t.category);
+        query.category = { $exists: false };
       } else {
-        transactions = transactions.filter(t => t.category === category);
+        query.category = category;
       }
     }
     
+    // Search in description or payee
     if (search) {
-      const searchLower = search.toLowerCase();
-      transactions = transactions.filter(t => 
-        t.description.toLowerCase().includes(searchLower) ||
-        t.payee.toLowerCase().includes(searchLower)
-      );
+      const searchRegex = new RegExp(search, 'i');
+      query.$or = [
+        { description: searchRegex },
+        { payee: searchRegex }
+      ];
     }
     
+    // Get total count for pagination
+    const total = await collection.countDocuments(query);
+    
     // Pagination
-    const startIndex = (page - 1) * limit;
-    const endIndex = page * limit;
-    const paginatedTransactions = transactions.slice(startIndex, endIndex);
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Execute query with pagination
+    const transactions = await collection
+      .find(query)
+      .sort({ date: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .toArray();
     
     // Return data with pagination metadata
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      data: paginatedTransactions,
+      source: 'database',
+      data: transactions,
       pagination: {
-        total: transactions.length,
-        page: Number(page),
-        limit: Number(limit),
-        pages: Math.ceil(transactions.length / limit)
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit))
       }
     });
   } catch (error) {
     console.error('Error in transactions API:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to fetch transactions',
       error: error.message
@@ -86,9 +146,8 @@ function handleGet(req, res) {
   }
 }
 
-function handleUpdate(req, res) {
+async function handleUpdate(req, res, collection) {
   try {
-    // Get ID from the URL path (/api/transactions/[id])
     const { id } = req.query;
     const updateData = req.body;
     
@@ -99,27 +158,28 @@ function handleUpdate(req, res) {
       });
     }
     
-    // Find the transaction by ID (support both id and _id for compatibility)
-    const index = transactionsDB.findIndex(t => t.id === id || t._id === id);
+    // Add updated timestamp
+    updateData.updatedAt = new Date().toISOString();
     
-    if (index === -1) {
+    // Update in database
+    const result = await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData }
+    );
+    
+    if (result.matchedCount === 0) {
       return res.status(404).json({ 
         success: false, 
         message: 'Transaction not found'
       });
     }
     
-    // Update the transaction
-    transactionsDB[index] = {
-      ...transactionsDB[index],
-      ...updateData,
-      // Add updated timestamp
-      updatedAt: new Date().toISOString()
-    };
+    // Get the updated transaction
+    const updatedTransaction = await collection.findOne({ _id: new ObjectId(id) });
     
     return res.status(200).json({ 
       success: true, 
-      data: transactionsDB[index],
+      data: updatedTransaction,
       message: 'Transaction updated successfully'
     });
   } catch (error) {
@@ -132,7 +192,7 @@ function handleUpdate(req, res) {
   }
 }
 
-function handleCreate(req, res) {
+async function handleCreate(req, res, collection) {
   try {
     const transactionData = req.body;
     
@@ -143,23 +203,20 @@ function handleCreate(req, res) {
       });
     }
     
-    // Generate a new ID
-    const newId = `tr-${Date.now()}`;
-    
-    // Create the new transaction
+    // Add timestamps
+    const now = new Date().toISOString();
     const newTransaction = {
-      id: newId,
       ...transactionData,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      createdAt: now,
+      updatedAt: now
     };
     
-    // Add to the database
-    transactionsDB.push(newTransaction);
+    // Insert into database
+    const result = await collection.insertOne(newTransaction);
     
     return res.status(201).json({ 
       success: true, 
-      data: newTransaction,
+      data: { ...newTransaction, _id: result.insertedId },
       message: 'Transaction created successfully'
     });
   } catch (error) {
@@ -172,91 +229,37 @@ function handleCreate(req, res) {
   }
 }
 
-function generateTransactions(dateRange) {
-  const types = ['income', 'expense'];
-  const statuses = ['categorized', 'uncategorized', 'reviewed'];
-  const categories = {
-    income: ['Client Payment', 'Product Sales', 'Consulting', 'Dividends', 'Royalties', 'Other Income'],
-    expense: ['Office Rent', 'Utilities', 'Payroll', 'Software Subscriptions', 'Travel', 'Marketing', 'Equipment', 'Supplies', 'Other Expense']
-  };
-  
-  const accounts = ['Checking Account', 'Savings Account', 'Business Credit Card'];
-  const payees = ['ABC Client', 'XYZ Supplier', 'Utility Company', 'Office Supply Store', 'Software Vendor', 'Marketing Agency'];
-  
-  let daysToInclude = 30; // default to month
-  
-  switch (dateRange) {
-    case 'week':
-      daysToInclude = 7;
-      break;
-    case 'month':
-      daysToInclude = 30;
-      break;
-    case 'quarter':
-      daysToInclude = 90;
-      break;
-    case 'year':
-      daysToInclude = 365;
-      break;
-    default:
-      daysToInclude = 30;
-  }
-  
-  const transactions = [];
-  // Generate more transactions for longer date ranges
-  const numTransactions = Math.min(Math.max(daysToInclude, 20), 100);
-  
-  for (let i = 0; i < numTransactions; i++) {
-    const type = types[Math.floor(Math.random() * types.length)];
-    const category = categories[type][Math.floor(Math.random() * categories[type].length)];
-    const status = statuses[Math.floor(Math.random() * statuses.length)];
-    const account = accounts[Math.floor(Math.random() * accounts.length)];
-    const payee = payees[Math.floor(Math.random() * payees.length)];
+async function handleDelete(req, res, collection) {
+  try {
+    const { id } = req.query;
     
-    const amount = type === 'income' 
-      ? Math.floor(Math.random() * 5000) + 500 
-      : -(Math.floor(Math.random() * 3000) + 200);
-    
-    const date = new Date();
-    date.setDate(date.getDate() - Math.floor(Math.random() * daysToInclude));
-    
-    transactions.push({
-      id: `tr-${i + 1}`,
-      date: date.toISOString().split('T')[0],
-      type,
-      category: status === 'uncategorized' ? null : category,
-      status,
-      amount,
-      account,
-      payee,
-      description: `${type === 'income' ? 'Payment from' : 'Payment to'} ${payee}`,
-      notes: Math.random() > 0.7 ? 'Custom note for this transaction' : '',
-      attachments: Math.random() > 0.8 ? [{ name: 'receipt.pdf', url: '#' }] : [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
-  }
-  
-  // Import some transactions from mockCashFlowData if available
-  if (mockCashFlowData && mockCashFlowData.recentTransactions) {
-    mockCashFlowData.recentTransactions.forEach((t, index) => {
-      transactions.push({
-        id: `mock-${index}`,
-        date: t.date,
-        type: t.amount > 0 ? 'income' : 'expense',
-        category: t.category,
-        status: 'categorized',
-        amount: t.amount,
-        account: 'Primary Account',
-        payee: t.merchant || t.category,
-        description: t.description || `${t.amount > 0 ? 'Income' : 'Expense'} - ${t.category}`,
-        notes: '',
-        attachments: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+    if (!id) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Transaction ID is required'
       });
+    }
+    
+    // Delete from database
+    const result = await collection.deleteOne({ _id: new ObjectId(id) });
+    
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Transaction not found'
+      });
+    }
+    
+    return res.status(200).json({ 
+      success: true,
+      message: 'Transaction deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting transaction:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to delete transaction',
+      error: error.message
     });
   }
-  
-  return transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
 } 

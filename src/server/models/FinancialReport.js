@@ -1,30 +1,60 @@
-const db = require('../database/config');
+/**
+ * FinancialReport model - MongoDB implementation
+ */
+const mongodb = require('../database/mongodb-config');
 
 class FinancialReport {
   // Generate a balance sheet report
   static async generateBalanceSheet(date = new Date()) {
     try {
-      // Assets
-      const assetsResult = await db.query(
-        `SELECT SUM(amount) as total FROM assets WHERE date <= $1`,
-        [date]
-      );
+      const db = await mongodb.getDb();
       
-      // Liabilities
-      const liabilitiesResult = await db.query(
-        `SELECT SUM(amount) as total FROM liabilities WHERE date <= $1`,
-        [date]
-      );
+      // Assets - aggregate data from invoices (receivables) and any asset records
+      const assetsCollection = db.collection('assets');
+      const invoicesCollection = db.collection('invoices');
       
-      // Equity (Assets - Liabilities)
-      const assets = parseFloat(assetsResult.rows[0]?.total || 0);
-      const liabilities = parseFloat(liabilitiesResult.rows[0]?.total || 0);
-      const equity = assets - liabilities;
+      // Get paid receivables (assets)
+      const receivablesResult = await invoicesCollection.aggregate([
+        { $match: { status: { $ne: 'paid' }, due_date: { $lte: new Date(date) } } },
+        { $group: { _id: null, total: { $sum: { $toDouble: "$amount" } } } }
+      ]).toArray();
+      
+      // Get other assets
+      const assetsResult = await assetsCollection.aggregate([
+        { $match: { date: { $lte: new Date(date) } } },
+        { $group: { _id: null, total: { $sum: { $toDouble: "$amount" } } } }
+      ]).toArray();
+      
+      // Liabilities - aggregate from expenses and other liabilities
+      const liabilitiesCollection = db.collection('liabilities');
+      const expensesCollection = db.collection('expenses');
+      
+      // Get unpaid expenses (liabilities)
+      const unpaidExpensesResult = await expensesCollection.aggregate([
+        { $match: { paid: false, date: { $lte: new Date(date) } } },
+        { $group: { _id: null, total: { $sum: { $toDouble: "$amount" } } } }
+      ]).toArray();
+      
+      // Get other liabilities
+      const liabilitiesResult = await liabilitiesCollection.aggregate([
+        { $match: { date: { $lte: new Date(date) } } },
+        { $group: { _id: null, total: { $sum: { $toDouble: "$amount" } } } }
+      ]).toArray();
+      
+      // Calculate totals
+      const receivables = receivablesResult.length > 0 ? receivablesResult[0].total : 0;
+      const assets = assetsResult.length > 0 ? assetsResult[0].total : 0;
+      const unpaidExpenses = unpaidExpensesResult.length > 0 ? unpaidExpensesResult[0].total : 0;
+      const liabilities = liabilitiesResult.length > 0 ? liabilitiesResult[0].total : 0;
+      
+      const totalAssets = receivables + assets;
+      const totalLiabilities = unpaidExpenses + liabilities;
+      const equity = totalAssets - totalLiabilities;
       
       return {
         date,
-        assets,
-        liabilities,
+        assets: totalAssets,
+        liabilities: totalLiabilities,
         equity,
         details: {
           assets: await this.getAssetDetails(date),
@@ -40,16 +70,21 @@ class FinancialReport {
   // Get detailed asset breakdown
   static async getAssetDetails(date) {
     try {
-      const result = await db.query(
-        `SELECT category, SUM(amount) as total
-         FROM assets
-         WHERE date <= $1
-         GROUP BY category
-         ORDER BY total DESC`,
-        [date]
-      );
+      const db = await mongodb.getDb();
+      const assetsCollection = db.collection('assets');
       
-      return result.rows;
+      const result = await assetsCollection.aggregate([
+        { $match: { date: { $lte: new Date(date) } } },
+        { $group: { 
+            _id: "$category", 
+            total: { $sum: { $toDouble: "$amount" } } 
+          }
+        },
+        { $project: { _id: 0, category: "$_id", total: 1 } },
+        { $sort: { total: -1 } }
+      ]).toArray();
+      
+      return result;
     } catch (error) {
       console.error('Error getting asset details:', error);
       throw error;
@@ -59,16 +94,21 @@ class FinancialReport {
   // Get detailed liability breakdown
   static async getLiabilityDetails(date) {
     try {
-      const result = await db.query(
-        `SELECT category, SUM(amount) as total
-         FROM liabilities
-         WHERE date <= $1
-         GROUP BY category
-         ORDER BY total DESC`,
-        [date]
-      );
+      const db = await mongodb.getDb();
+      const liabilitiesCollection = db.collection('liabilities');
       
-      return result.rows;
+      const result = await liabilitiesCollection.aggregate([
+        { $match: { date: { $lte: new Date(date) } } },
+        { $group: { 
+            _id: "$category", 
+            total: { $sum: { $toDouble: "$amount" } } 
+          }
+        },
+        { $project: { _id: 0, category: "$_id", total: 1 } },
+        { $sort: { total: -1 } }
+      ]).toArray();
+      
+      return result;
     } catch (error) {
       console.error('Error getting liability details:', error);
       throw error;
@@ -78,24 +118,49 @@ class FinancialReport {
   // Generate an income statement (profit & loss)
   static async generateIncomeStatement(startDate, endDate) {
     try {
+      const db = await mongodb.getDb();
+      const invoicesCollection = db.collection('invoices');
+      const expensesCollection = db.collection('expenses');
+      
+      // Convert string dates to Date objects if needed
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      
       // Revenue
-      const revenueResult = await db.query(
-        `SELECT SUM(amount) as total
-         FROM invoices
-         WHERE status = 'paid' AND payment_date BETWEEN $1 AND $2`,
-        [startDate, endDate]
-      );
+      const revenueResult = await invoicesCollection.aggregate([
+        { $match: { 
+            status: 'paid', 
+            payment_date: { 
+              $gte: start, 
+              $lte: end 
+            } 
+          } 
+        },
+        { $group: { 
+            _id: null, 
+            total: { $sum: { $toDouble: "$amount" } } 
+          } 
+        }
+      ]).toArray();
       
       // Expenses
-      const expenseResult = await db.query(
-        `SELECT SUM(amount) as total
-         FROM expenses
-         WHERE date BETWEEN $1 AND $2`,
-        [startDate, endDate]
-      );
+      const expenseResult = await expensesCollection.aggregate([
+        { $match: { 
+            date: { 
+              $gte: start, 
+              $lte: end 
+            } 
+          } 
+        },
+        { $group: { 
+            _id: null, 
+            total: { $sum: { $toDouble: "$amount" } } 
+          } 
+        }
+      ]).toArray();
       
-      const revenue = parseFloat(revenueResult.rows[0]?.total || 0);
-      const expenses = parseFloat(expenseResult.rows[0]?.total || 0);
+      const revenue = revenueResult.length > 0 ? revenueResult[0].total : 0;
+      const expenses = expenseResult.length > 0 ? expenseResult[0].total : 0;
       const netIncome = revenue - expenses;
       
       return {
@@ -118,17 +183,37 @@ class FinancialReport {
   // Get detailed revenue breakdown
   static async getRevenueDetails(startDate, endDate) {
     try {
-      const result = await db.query(
-        `SELECT c.name as client_name, SUM(i.amount) as total
-         FROM invoices i
-         JOIN clients c ON i.client_id = c.id
-         WHERE i.status = 'paid' AND i.payment_date BETWEEN $1 AND $2
-         GROUP BY c.name
-         ORDER BY total DESC`,
-        [startDate, endDate]
-      );
+      const db = await mongodb.getDb();
+      const invoicesCollection = db.collection('invoices');
       
-      return result.rows;
+      // Convert string dates to Date objects if needed
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      
+      const result = await invoicesCollection.aggregate([
+        { $match: { 
+            status: 'paid', 
+            payment_date: { 
+              $gte: start, 
+              $lte: end 
+            } 
+          } 
+        },
+        { $group: { 
+            _id: "$client_name", 
+            total: { $sum: { $toDouble: "$amount" } } 
+          } 
+        },
+        { $project: { 
+            _id: 0, 
+            client_name: "$_id", 
+            total: 1 
+          } 
+        },
+        { $sort: { total: -1 } }
+      ]).toArray();
+      
+      return result;
     } catch (error) {
       console.error('Error getting revenue details:', error);
       throw error;
@@ -138,16 +223,36 @@ class FinancialReport {
   // Get detailed expense breakdown
   static async getExpenseDetails(startDate, endDate) {
     try {
-      const result = await db.query(
-        `SELECT category, SUM(amount) as total
-         FROM expenses
-         WHERE date BETWEEN $1 AND $2
-         GROUP BY category
-         ORDER BY total DESC`,
-        [startDate, endDate]
-      );
+      const db = await mongodb.getDb();
+      const expensesCollection = db.collection('expenses');
       
-      return result.rows;
+      // Convert string dates to Date objects if needed
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      
+      const result = await expensesCollection.aggregate([
+        { $match: { 
+            date: { 
+              $gte: start, 
+              $lte: end 
+            } 
+          } 
+        },
+        { $group: { 
+            _id: "$category", 
+            total: { $sum: { $toDouble: "$amount" } } 
+          } 
+        },
+        { $project: { 
+            _id: 0, 
+            category: "$_id", 
+            total: 1 
+          } 
+        },
+        { $sort: { total: -1 } }
+      ]).toArray();
+      
+      return result;
     } catch (error) {
       console.error('Error getting expense details:', error);
       throw error;
@@ -157,33 +262,65 @@ class FinancialReport {
   // Generate a cash flow statement
   static async generateCashFlowStatement(startDate, endDate) {
     try {
+      const db = await mongodb.getDb();
+      const invoicesCollection = db.collection('invoices');
+      const expensesCollection = db.collection('expenses');
+      const cashTransactionsCollection = db.collection('cash_transactions');
+      
+      // Convert string dates to Date objects if needed
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      
       // Cash inflows (payments received)
-      const inFlowResult = await db.query(
-        `SELECT SUM(amount) as total
-         FROM invoices
-         WHERE status = 'paid' AND payment_date BETWEEN $1 AND $2`,
-        [startDate, endDate]
-      );
+      const inFlowResult = await invoicesCollection.aggregate([
+        { $match: { 
+            status: 'paid', 
+            payment_date: { 
+              $gte: start, 
+              $lte: end 
+            } 
+          } 
+        },
+        { $group: { 
+            _id: null, 
+            total: { $sum: { $toDouble: "$amount" } } 
+          } 
+        }
+      ]).toArray();
       
       // Cash outflows (expenses paid)
-      const outFlowResult = await db.query(
-        `SELECT SUM(amount) as total
-         FROM expenses
-         WHERE date BETWEEN $1 AND $2`,
-        [startDate, endDate]
-      );
+      const outFlowResult = await expensesCollection.aggregate([
+        { $match: { 
+            paid: true,
+            date: { 
+              $gte: start, 
+              $lte: end 
+            } 
+          } 
+        },
+        { $group: { 
+            _id: null, 
+            total: { $sum: { $toDouble: "$amount" } } 
+          } 
+        }
+      ]).toArray();
       
       // Beginning cash balance
-      const beginBalanceResult = await db.query(
-        `SELECT SUM(amount) as total
-         FROM cash_transactions
-         WHERE date < $1`,
-        [startDate]
-      );
+      const beginBalanceResult = await cashTransactionsCollection.aggregate([
+        { $match: { 
+            date: { $lt: start } 
+          } 
+        },
+        { $group: { 
+            _id: null, 
+            total: { $sum: { $toDouble: "$amount" } } 
+          } 
+        }
+      ]).toArray();
       
-      const inflows = parseFloat(inFlowResult.rows[0]?.total || 0);
-      const outflows = parseFloat(outFlowResult.rows[0]?.total || 0);
-      const beginningBalance = parseFloat(beginBalanceResult.rows[0]?.total || 0);
+      const inflows = inFlowResult.length > 0 ? inFlowResult[0].total : 0;
+      const outflows = outFlowResult.length > 0 ? outFlowResult[0].total : 0;
+      const beginningBalance = beginBalanceResult.length > 0 ? beginBalanceResult[0].total : 0;
       const netCashFlow = inflows - outflows;
       const endingBalance = beginningBalance + netCashFlow;
       
@@ -209,17 +346,37 @@ class FinancialReport {
   // Get detailed cash inflow breakdown
   static async getCashInflowDetails(startDate, endDate) {
     try {
-      const result = await db.query(
-        `SELECT c.name as source, SUM(i.amount) as total
-         FROM invoices i
-         JOIN clients c ON i.client_id = c.id
-         WHERE i.status = 'paid' AND i.payment_date BETWEEN $1 AND $2
-         GROUP BY c.name
-         ORDER BY total DESC`,
-        [startDate, endDate]
-      );
+      const db = await mongodb.getDb();
+      const invoicesCollection = db.collection('invoices');
       
-      return result.rows;
+      // Convert string dates to Date objects if needed
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      
+      const result = await invoicesCollection.aggregate([
+        { $match: { 
+            status: 'paid', 
+            payment_date: { 
+              $gte: start, 
+              $lte: end 
+            } 
+          } 
+        },
+        { $group: { 
+            _id: "$client_name", 
+            total: { $sum: { $toDouble: "$amount" } } 
+          } 
+        },
+        { $project: { 
+            _id: 0, 
+            source: "$_id", 
+            total: 1 
+          } 
+        },
+        { $sort: { total: -1 } }
+      ]).toArray();
+      
+      return result;
     } catch (error) {
       console.error('Error getting cash inflow details:', error);
       throw error;
@@ -229,16 +386,37 @@ class FinancialReport {
   // Get detailed cash outflow breakdown
   static async getCashOutflowDetails(startDate, endDate) {
     try {
-      const result = await db.query(
-        `SELECT category as destination, SUM(amount) as total
-         FROM expenses
-         WHERE date BETWEEN $1 AND $2
-         GROUP BY category
-         ORDER BY total DESC`,
-        [startDate, endDate]
-      );
+      const db = await mongodb.getDb();
+      const expensesCollection = db.collection('expenses');
       
-      return result.rows;
+      // Convert string dates to Date objects if needed
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      
+      const result = await expensesCollection.aggregate([
+        { $match: { 
+            paid: true,
+            date: { 
+              $gte: start, 
+              $lte: end 
+            } 
+          } 
+        },
+        { $group: { 
+            _id: "$category", 
+            total: { $sum: { $toDouble: "$amount" } } 
+          } 
+        },
+        { $project: { 
+            _id: 0, 
+            destination: "$_id", 
+            total: 1 
+          } 
+        },
+        { $sort: { total: -1 } }
+      ]).toArray();
+      
+      return result;
     } catch (error) {
       console.error('Error getting cash outflow details:', error);
       throw error;

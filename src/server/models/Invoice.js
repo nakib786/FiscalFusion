@@ -1,52 +1,89 @@
 /**
- * Mock Invoice model
- * This is a placeholder until we implement the actual database model
+ * Invoice model for MongoDB database interaction
  */
 
-// Mock data
-const mockInvoices = [
-  {
-    id: 1,
-    client_id: 1,
-    client_name: 'Acme Corporation',
-    amount: 2500.00,
-    status: 'unpaid',
-    due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    payment_date: null,
-    notes: 'Website development project',
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 2,
-    client_id: 2,
-    client_name: 'TechStart Inc.',
-    amount: 1800.00,
-    status: 'paid',
-    due_date: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    payment_date: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    notes: 'Consulting services',
-    created_at: new Date().toISOString()
-  }
-];
+const mongodb = require('../database/mongodb-config');
+const { ObjectId } = require('mongodb');
 
 /**
  * Get all invoices
  * @returns {Promise<Array>} Array of invoices
  */
 const getAll = async () => {
-  // In a real app, this would query the database
-  return [...mockInvoices];
+  try {
+    const db = await mongodb.getDb();
+    // Use aggregation to join with clients collection to get client name
+    const invoices = await db.collection('invoices').aggregate([
+      {
+        $lookup: {
+          from: 'clients',
+          localField: 'client_id',
+          foreignField: '_id',
+          as: 'client'
+        }
+      },
+      {
+        $unwind: {
+          path: '$client',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $addFields: {
+          client_name: '$client.name'
+        }
+      },
+      {
+        $sort: { due_date: -1 }
+      }
+    ]).toArray();
+    
+    return invoices;
+  } catch (error) {
+    console.error('Error retrieving invoices:', error);
+    throw error;
+  }
 };
 
 /**
  * Get invoice by ID
- * @param {number} id - Invoice ID
+ * @param {string} id - Invoice ID
  * @returns {Promise<Object|null>} Invoice object or null if not found
  */
 const getById = async (id) => {
-  // In a real app, this would query the database
-  const invoice = mockInvoices.find(inv => inv.id === parseInt(id));
-  return invoice || null;
+  try {
+    const db = await mongodb.getDb();
+    // Use aggregation to join with clients collection to get client name
+    const invoices = await db.collection('invoices').aggregate([
+      {
+        $match: { _id: new ObjectId(id) }
+      },
+      {
+        $lookup: {
+          from: 'clients',
+          localField: 'client_id',
+          foreignField: '_id',
+          as: 'client'
+        }
+      },
+      {
+        $unwind: {
+          path: '$client',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $addFields: {
+          client_name: '$client.name'
+        }
+      }
+    ]).toArray();
+    
+    return invoices.length > 0 ? invoices[0] : null;
+  } catch (error) {
+    console.error(`Error retrieving invoice ${id}:`, error);
+    throw error;
+  }
 };
 
 /**
@@ -55,51 +92,106 @@ const getById = async (id) => {
  * @returns {Promise<Object>} Created invoice
  */
 const create = async (data) => {
-  // In a real app, this would insert to the database
-  const newInvoice = {
-    id: mockInvoices.length + 1,
-    ...data,
-    created_at: new Date().toISOString()
-  };
-  mockInvoices.push(newInvoice);
-  return newInvoice;
+  try {
+    const db = await mongodb.getDb();
+    const newInvoice = {
+      client_id: new ObjectId(data.client_id),
+      amount: parseFloat(data.amount),
+      status: data.status || 'unpaid',
+      due_date: new Date(data.due_date),
+      payment_date: data.payment_date ? new Date(data.payment_date) : null,
+      notes: data.notes,
+      created_at: new Date()
+    };
+    
+    const result = await db.collection('invoices').insertOne(newInvoice);
+    
+    // Get the client name for the newly created invoice
+    if (result.insertedId) {
+      const client = await db.collection('clients').findOne({ _id: new ObjectId(data.client_id) });
+      
+      if (client) {
+        return { 
+          _id: result.insertedId, 
+          ...newInvoice, 
+          client_name: client.name 
+        };
+      }
+    }
+    
+    return { _id: result.insertedId, ...newInvoice };
+  } catch (error) {
+    console.error('Error creating invoice:', error);
+    throw error;
+  }
 };
 
 /**
  * Update an invoice
- * @param {number} id - Invoice ID
+ * @param {string} id - Invoice ID
  * @param {Object} data - Invoice data to update
  * @returns {Promise<Object|null>} Updated invoice or null if not found
  */
 const update = async (id, data) => {
-  // In a real app, this would update the database
-  const index = mockInvoices.findIndex(inv => inv.id === parseInt(id));
-  
-  if (index === -1) return null;
-  
-  mockInvoices[index] = {
-    ...mockInvoices[index],
-    ...data
-  };
-  
-  return mockInvoices[index];
+  try {
+    const db = await mongodb.getDb();
+    const updateData = {};
+    
+    // Only include fields that are provided
+    if (data.client_id !== undefined) updateData.client_id = new ObjectId(data.client_id);
+    if (data.amount !== undefined) updateData.amount = parseFloat(data.amount);
+    if (data.status !== undefined) updateData.status = data.status;
+    if (data.due_date !== undefined) updateData.due_date = new Date(data.due_date);
+    if (data.payment_date !== undefined) updateData.payment_date = data.payment_date ? new Date(data.payment_date) : null;
+    if (data.notes !== undefined) updateData.notes = data.notes;
+    
+    // If no valid fields were provided to update, return null
+    if (Object.keys(updateData).length === 0) {
+      return null;
+    }
+    
+    const result = await db.collection('invoices').findOneAndUpdate(
+      { _id: new ObjectId(id) },
+      { $set: updateData },
+      { returnDocument: 'after' }
+    );
+    
+    // Get the client name for the updated invoice
+    if (result.value) {
+      const client = await db.collection('clients').findOne({ _id: result.value.client_id });
+      
+      if (client) {
+        result.value.client_name = client.name;
+      }
+    }
+    
+    return result.value;
+  } catch (error) {
+    console.error(`Error updating invoice ${id}:`, error);
+    throw error;
+  }
 };
 
 /**
  * Delete an invoice
- * @param {number} id - Invoice ID
+ * @param {string} id - Invoice ID
  * @returns {Promise<Object|null>} Deleted invoice or null if not found
  */
 const deleteInvoice = async (id) => {
-  // In a real app, this would delete from the database
-  const index = mockInvoices.findIndex(inv => inv.id === parseInt(id));
-  
-  if (index === -1) return null;
-  
-  const deletedInvoice = mockInvoices[index];
-  mockInvoices.splice(index, 1);
-  
-  return deletedInvoice;
+  try {
+    const db = await mongodb.getDb();
+    
+    // Delete any invoice items first
+    await db.collection('invoice_items').deleteMany({ invoice_id: new ObjectId(id) });
+    
+    // Then delete the invoice
+    const result = await db.collection('invoices').findOneAndDelete({ _id: new ObjectId(id) });
+    
+    return result.value;
+  } catch (error) {
+    console.error(`Error deleting invoice ${id}:`, error);
+    throw error;
+  }
 };
 
 /**
@@ -107,23 +199,88 @@ const deleteInvoice = async (id) => {
  * @returns {Promise<Object>} Reminder results
  */
 const sendReminders = async () => {
-  // In a real app, this would generate and send reminders
-  const overdue = mockInvoices.filter(inv => 
-    inv.status === 'unpaid' && 
-    new Date(inv.due_date) < new Date()
-  );
-  
-  const upcoming = mockInvoices.filter(inv => 
-    inv.status === 'unpaid' && 
-    new Date(inv.due_date) >= new Date() &&
-    new Date(inv.due_date) <= new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-  );
-  
-  return {
-    overdue,
-    upcoming,
-    total: overdue.length + upcoming.length
-  };
+  try {
+    const db = await mongodb.getDb();
+    
+    // Get overdue invoices
+    const overdue = await db.collection('invoices').aggregate([
+      {
+        $match: {
+          status: 'unpaid',
+          due_date: { $lt: new Date() }
+        }
+      },
+      {
+        $lookup: {
+          from: 'clients',
+          localField: 'client_id',
+          foreignField: '_id',
+          as: 'client'
+        }
+      },
+      {
+        $unwind: {
+          path: '$client',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $addFields: {
+          client_name: '$client.name'
+        }
+      },
+      {
+        $sort: { due_date: 1 }
+      }
+    ]).toArray();
+    
+    // Get upcoming invoices due in the next 7 days
+    const sevenDaysFromNow = new Date();
+    sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
+    
+    const upcoming = await db.collection('invoices').aggregate([
+      {
+        $match: {
+          status: 'unpaid',
+          due_date: { 
+            $gte: new Date(),
+            $lte: sevenDaysFromNow
+          }
+        }
+      },
+      {
+        $lookup: {
+          from: 'clients',
+          localField: 'client_id',
+          foreignField: '_id',
+          as: 'client'
+        }
+      },
+      {
+        $unwind: {
+          path: '$client',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $addFields: {
+          client_name: '$client.name'
+        }
+      },
+      {
+        $sort: { due_date: 1 }
+      }
+    ]).toArray();
+    
+    return {
+      overdue,
+      upcoming,
+      total: overdue.length + upcoming.length
+    };
+  } catch (error) {
+    console.error('Error getting invoice reminders:', error);
+    throw error;
+  }
 };
 
 module.exports = {

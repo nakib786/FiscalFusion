@@ -1,11 +1,20 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import AceternitySidebar from './AceternitySidebar';
 import AuroraBackground from '../ui/aceternity/aurora-background';
+import GlobalSearch from '../ui/GlobalSearch';
+import useKeyboardShortcut from '../../hooks/useKeyboardShortcut';
 
 export default function BusinessOverviewLayout({ children }) {
   const router = useRouter();
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  
+  // Set up global keyboard shortcuts
+  useKeyboardShortcut({
+    'cmd+k': () => setIsSearchOpen(true),
+    'ctrl+k': () => setIsSearchOpen(true),
+  });
   
   // Navigation items with icons
   const navItems = [
@@ -88,10 +97,20 @@ export default function BusinessOverviewLayout({ children }) {
           {/* Top navigation */}
           <header className="bg-transparent backdrop-blur-sm shadow-sm z-10 border-b border-white/5">
             <div className="flex items-center justify-between p-4">
-              <div className="flex items-center">
-                {/* Removed hamburger menu button */}
+              {/* Page Title */}
+              <div className="text-white font-medium">
+                {router.pathname === '/dashboard' ? 'Business Overview' : 
+                 router.pathname === '/clients' ? 'Clients' :
+                 router.pathname === '/invoices' ? 'Invoices' :
+                 router.pathname === '/expenses' ? 'Expenses' :
+                 router.pathname === '/cashflow' ? 'Cash Flow' :
+                 router.pathname === '/performance' ? 'Performance' :
+                 router.pathname === '/reports' ? 'Reports' :
+                 router.pathname === '/planner' ? 'Planner' :
+                 router.pathname === '/projects' ? 'Projects' : 'Dashboard'}
               </div>
               
+              {/* Right side icons */}
               <div className="flex items-center">
                 <button className="text-white mr-4">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -105,13 +124,15 @@ export default function BusinessOverviewLayout({ children }) {
                   </svg>
                 </button>
                 
-                <button className="text-white mr-4">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                </button>
+                {/* Global Search */}
+                <GlobalSearch 
+                  userId="current-user" 
+                  username="Company Account" 
+                  isOpen={isSearchOpen}
+                  setIsOpen={setIsSearchOpen}
+                />
                 
-                <button className="flex items-center">
+                <button className="flex items-center ml-4">
                   <div className="h-8 w-8 rounded-full bg-blue-500 flex items-center justify-center text-white">
                     C
                   </div>

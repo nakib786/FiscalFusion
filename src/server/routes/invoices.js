@@ -1,55 +1,20 @@
 const express = require('express');
 const Invoice = require('../models/Invoice');
 const router = express.Router();
-const db = require('../database/config');
-
-// Mock data for development/testing
-const mockInvoices = [
-  { id: 1, client_name: 'Acme Corp', amount: '1500.00', status: 'paid', due_date: '2023-08-15' },
-  { id: 2, client_name: 'Globex Inc', amount: '2450.00', status: 'unpaid', due_date: '2023-09-01' },
-  { id: 3, client_name: 'Stark Industries', amount: '3200.00', status: 'paid', due_date: '2023-08-20' },
-  { id: 4, client_name: 'Wayne Enterprises', amount: '1800.00', status: 'overdue', due_date: '2023-08-10' },
-  { id: 5, client_name: 'Oscorp', amount: '950.00', status: 'unpaid', due_date: '2023-09-05' }
-];
 
 // Get all invoices
 router.get('/', async (req, res) => {
   try {
-    // Check if we should use mock data
-    if (process.env.USE_MOCK_DATA === 'true') {
-      console.log('Using mock invoice data (forced by environment variable)');
-      return res.status(200).json({ 
-        success: true, 
-        data: mockInvoices,
-        source: 'mock'
-      });
-    }
-
-    // Try to get data from database
-    const result = await db.query('SELECT * FROM invoices ORDER BY created_at DESC LIMIT 10');
-    
-    // If no results or empty, use mock data
-    if (!result || !result.rows || result.rows.length === 0) {
-      console.log('No invoices found in database, using mock data');
-      return res.status(200).json({ 
-        success: true, 
-        data: mockInvoices,
-        source: 'mock'
-      });
-    }
-    
-    res.status(200).json({
+    const invoices = await Invoice.getAll();
+    res.json({
       success: true,
-      data: result.rows,
-      source: 'database'
+      data: invoices
     });
   } catch (error) {
     console.error('Error fetching invoices:', error);
-    // Fall back to mock data on error
-    res.status(200).json({ 
-      success: true, 
-      data: mockInvoices,
-      source: 'mock (database error fallback)'
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to retrieve invoices'
     });
   }
 });
@@ -71,52 +36,65 @@ router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    // Check if we should use mock data
-    if (process.env.USE_MOCK_DATA === 'true') {
-      const mockInvoice = mockInvoices.find(inv => inv.id === parseInt(id));
-      if (mockInvoice) {
-        return res.status(200).json({ 
-          success: true, 
-          data: mockInvoice,
-          source: 'mock'
-        });
-      }
-      return res.status(404).json({ success: false, message: 'Invoice not found' });
-    }
-
-    const result = await db.query('SELECT * FROM invoices WHERE id = $1', [id]);
+    // In a real implementation, this would fetch from MongoDB
+    const mongodb = require('../database/mongodb-config');
+    const db = await mongodb.getDb();
     
-    if (!result.rows.length) {
-      // Try mock data if not found in database
-      const mockInvoice = mockInvoices.find(inv => inv.id === parseInt(id));
-      if (mockInvoice) {
-        return res.status(200).json({ 
-          success: true, 
-          data: mockInvoice,
-          source: 'mock'
-        });
+    // If MongoDB is connected, attempt to fetch from database
+    if (mongodb.getConnectionStatus()) {
+      try {
+        const invoice = await db.collection('invoices').findOne({ _id: id });
+        
+        if (invoice) {
+          return res.json({ success: true, data: invoice });
+        }
+      } catch (dbError) {
+        console.error('Database error when fetching invoice:', dbError);
+        // Fall through to mock data
       }
-      return res.status(404).json({ success: false, message: 'Invoice not found' });
     }
     
-    res.status(200).json({
-      success: true,
-      data: result.rows[0],
-      source: 'database'
+    // If we reach here, either MongoDB is not connected or the invoice wasn't found
+    // Return mock data
+    const mockInvoice = {
+      _id: id,
+      invoice_number: "INV-2023-" + id.substring(0, 4),
+      client_name: "Acme Corporation",
+      client_email: "billing@acmecorp.com",
+      amount: 2500.00,
+      status: "pending",
+      due_date: "2023-12-15",
+      description: "Website redesign project for Q4 2023",
+      items: [
+        {
+          name: "UI/UX Design",
+          quantity: 1,
+          price: 1200.00
+        },
+        {
+          name: "Frontend Development",
+          quantity: 1,
+          price: 800.00
+        },
+        {
+          name: "Backend Integration",
+          quantity: 1,
+          price: 500.00
+        }
+      ],
+      created_at: "2023-11-15",
+      updated_at: "2023-11-15"
+    };
+    
+    return res.json({ 
+      success: true, 
+      data: mockInvoice,
+      source: 'mock',
+      database_status: mongodb.getConnectionStatus() ? 'connected but record not found' : 'disconnected'
     });
   } catch (error) {
     console.error('Error fetching invoice:', error);
-    // Check if we can find the invoice in mock data
-    const { id } = req.params;
-    const mockInvoice = mockInvoices.find(inv => inv.id === parseInt(id));
-    if (mockInvoice) {
-      return res.status(200).json({ 
-        success: true, 
-        data: mockInvoice,
-        source: 'mock (database error fallback)'
-      });
-    }
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 

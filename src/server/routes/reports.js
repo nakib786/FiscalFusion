@@ -152,48 +152,121 @@ router.get('/', async (req, res) => {
   try {
     const { timeframe } = req.query;
     
-    // Check if we should use mock data
-    if (process.env.USE_MOCK_DATA === 'true') {
-      console.log('Using mock report data (forced by environment variable)');
-      return res.status(200).json({ 
-        success: true, 
-        data: mockReportData,
-        timeframe: timeframe || 'month',
-        source: 'mock'
-      });
+    // Get MongoDB connection
+    const mongodb = require('../database/mongodb-config');
+    const db = await mongodb.getDb();
+    
+    // Check if MongoDB is connected
+    if (mongodb.getConnectionStatus()) {
+      try {
+        // Attempt to fetch real data from MongoDB
+        const invoicesCollection = db.collection('invoices');
+        const expensesCollection = db.collection('expenses');
+        const clientsCollection = db.collection('clients');
+
+        // Revenue by month
+        const revenueByMonth = await invoicesCollection.aggregate([
+          { $match: { status: 'paid' } },
+          { $group: {
+              _id: { $dateToString: { format: "%b", date: { $toDate: "$payment_date" } } },
+              revenue: { $sum: "$amount" }
+            }
+          },
+          { $project: { _id: 0, month: "$_id", revenue: 1 } },
+          { $sort: { month: 1 } }
+        ]).toArray();
+
+        // Expenses by category
+        const expensesByCategory = await expensesCollection.aggregate([
+          { $group: {
+              _id: "$category",
+              amount: { $sum: "$amount" }
+            }
+          },
+          { $project: { _id: 0, category: "$_id", amount: 1 } },
+          { $sort: { amount: -1 } }
+        ]).toArray();
+
+        // Profit and loss by month
+        const profitLoss = await Promise.all([
+          // Revenue by month
+          invoicesCollection.aggregate([
+            { $match: { status: 'paid' } },
+            { $group: {
+                _id: { $dateToString: { format: "%b", date: { $toDate: "$payment_date" } } },
+                revenue: { $sum: "$amount" }
+              }
+            },
+            { $project: { _id: 0, month: "$_id", revenue: 1 } },
+            { $sort: { month: 1 } }
+          ]).toArray(),
+          
+          // Expenses by month
+          expensesCollection.aggregate([
+            { $group: {
+                _id: { $dateToString: { format: "%b", date: { $toDate: "$date" } } },
+                expenses: { $sum: "$amount" }
+              }
+            },
+            { $project: { _id: 0, month: "$_id", expenses: 1 } },
+            { $sort: { month: 1 } }
+          ]).toArray()
+        ]).then(([revenue, expenses]) => {
+          // Combine revenue and expenses by month
+          const months = [...new Set([...revenue.map(r => r.month), ...expenses.map(e => e.month)])].sort();
+          return months.map(month => {
+            const r = revenue.find(r => r.month === month) || { revenue: 0 };
+            const e = expenses.find(e => e.month === month) || { expenses: 0 };
+            return {
+              month,
+              revenue: r.revenue,
+              expenses: e.expenses,
+              profit: r.revenue - e.expenses
+            };
+          });
+        });
+
+        // Top clients by revenue
+        const topClients = await invoicesCollection.aggregate([
+          { $match: { status: 'paid' } },
+          { $group: {
+              _id: "$client_name",
+              revenue: { $sum: "$amount" }
+            }
+          },
+          { $project: { _id: 0, name: "$_id", revenue: 1 } },
+          { $sort: { revenue: -1 } },
+          { $limit: 5 }
+        ]).toArray();
+
+        // Return real data
+        return res.status(200).json({ 
+          success: true, 
+          data: {
+            revenueByMonth,
+            expensesByCategory,
+            profitLoss,
+            topClients
+          },
+          timeframe,
+          source: 'database',
+          database_status: 'connected'
+        });
+      } catch (dbError) {
+        console.error('Database query error:', dbError);
+        // Fall through to mock data
+      }
     }
 
-    // Try to get data from database
-    // In a real app, we would query different tables and aggregate data
-    
-    // Example query (simplified)
-    const revenueResult = await db.query(`
-      SELECT to_char(date_trunc('month', created_at), 'Mon') as month, 
-             SUM(amount) as revenue 
-      FROM invoices 
-      WHERE status = 'paid' 
-      GROUP BY date_trunc('month', created_at) 
-      ORDER BY date_trunc('month', created_at)
-    `).catch(err => null);
-    
-    // If database query failed, use mock data
-    if (!revenueResult) {
-      console.log('Database query failed, using mock data for reports');
-      return res.status(200).json({ 
-        success: true, 
-        data: mockReportData,
-        timeframe: timeframe || 'month',
-        source: 'mock (database error fallback)'
-      });
-    }
-    
-    // In a real app, we would continue with other queries and construct the full report
-    // For now, we'll just use the mock data for simplicity
+    // If we reach here, either MongoDB is not connected or queries failed
+    // Return mock data
+    console.log('Using mock report data (MongoDB not connected or query failed)');
     return res.status(200).json({ 
       success: true, 
       data: mockReportData,
       timeframe: timeframe || 'month',
-      source: 'mock (database integration pending)'
+      source: 'mock',
+      database_status: mongodb.getConnectionStatus() ? 'connected but query failed' : 'disconnected'
     });
   } catch (error) {
     console.error('Error fetching reports:', error);

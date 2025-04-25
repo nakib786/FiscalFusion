@@ -1,205 +1,304 @@
+// Next.js API route for cashflow - connects directly to database
+import { ObjectId } from 'mongodb';
+import clientPromise from '../../lib/mongodb';
+
 export default async function handler(req, res) {
   const { timeframe = 'month' } = req.query;
   
   try {
-    // Try to get data from backend with improved error handling
-    let data;
+    // Connect to MongoDB using the shared client
+    const client = await clientPromise;
+    const db = client.db();
     
-    try {
-      // Use a timeout to avoid hanging requests
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); 
-      
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/cashflow?timeframe=${timeframe}`, 
-        { 
-          signal: controller.signal,
-          headers: { 'Accept': 'application/json' }
-        }
-      );
-      
-      clearTimeout(timeoutId);
-      
-      // First check if response is ok
-      if (!response.ok) {
-        throw new Error(`Backend returned status ${response.status}`);
-      }
-      
-      // Check if response is JSON before trying to parse
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        throw new Error('Backend did not return valid JSON');
-      }
-      
-      data = await response.json();
-    } catch (backendError) {
-      console.error('Backend connection error:', backendError.message);
-      throw new Error(`Backend connection failed: ${backendError.message}`);
-    }
-
-    // Pass through the backend response
-    return res.status(200).json(data);
-  } catch (error) {
-    console.error('Cash Flow API error:', error.message);
+    // Fetch data from different collections
+    const invoices = await db.collection('invoices').find({}).toArray();
+    const expenses = await db.collection('expenses').find({}).toArray();
+    const transactions = await db.collection('transactions').find({}).sort({ date: -1 }).toArray();
     
-    // Generate mock data based on timeframe
-    const mockData = generateMockData(timeframe);
+    // Process data based on timeframe
+    const data = processDataForTimeframe(invoices, expenses, transactions, timeframe);
     
+    // Return the aggregated data
     return res.status(200).json({
       success: true,
-      source: 'mock (api fallback)',
-      data: mockData
+      source: 'database',
+      data
+    });
+  } catch (error) {
+    console.error('Cash Flow API error:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve cash flow data',
+      message: error.message
     });
   }
 }
 
-// Helper function to generate mock data
-function generateMockData(timeframe) {
-  // Generate monthly data based on timeframe
-  const getMonthlyData = () => {
-    let months;
+// Helper function to process data based on timeframe
+function processDataForTimeframe(invoices, expenses, transactions, timeframe) {
+  // Calculate current balance
+  const totalIncome = invoices
+    .filter(invoice => invoice.status === 'paid')
+    .reduce((sum, invoice) => sum + (parseFloat(invoice.amount) || 0), 0);
+  
+  const totalExpenses = expenses
+    .reduce((sum, expense) => sum + (parseFloat(expense.amount) || 0), 0);
+  
+  const balance = totalIncome - totalExpenses;
+  
+  // Generate monthly data
+  const monthlyData = generateMonthlyData(invoices, expenses, timeframe);
+  
+  // Filter and format transactions based on timeframe
+  const filteredTransactions = filterTransactionsByTimeframe(transactions, timeframe);
+  
+  // Generate forecasts
+  const forecast = generateForecast(monthlyData);
+  
+  // Generate insights
+  const insights = generateInsights(invoices, expenses, transactions);
+  
+  return {
+    balance,
+    monthlyData,
+    transactions: filteredTransactions,
+    forecast,
+    insights
+  };
+}
+
+// Helper function to generate monthly data based on timeframe
+function generateMonthlyData(invoices, expenses, timeframe) {
+  // Define date ranges based on timeframe
+  const now = new Date();
+  let startDate, endDate;
+  let labels = [];
     
     switch(timeframe) {
       case 'week':
-        // If timeframe is week, show daily data for the past week
-        const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-        return days.map(day => ({
-          month: day,
-          moneyIn: Math.floor(Math.random() * 3000) + 2000,
-          moneyOut: Math.floor(Math.random() * 2000) + 1500,
-        })).map(item => ({
-          ...item,
-          netCashFlow: item.moneyIn - item.moneyOut
-        }));
+      // Past 7 days
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - 7);
+      endDate = now;
+      
+      // Create daily labels
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date(now);
+        date.setDate(now.getDate() - i);
+        labels.push(date.toLocaleDateString('en-US', { weekday: 'short' }));
+      }
+      break;
       
       case 'quarter':
-        // For quarter, show past 3 months + current month
-        months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        const currentMonth = new Date().getMonth();
-        return months.slice(Math.max(0, currentMonth - 2), currentMonth + 2).map(month => ({
-          month,
-          moneyIn: Math.floor(Math.random() * 25000) + 30000,
-          moneyOut: Math.floor(Math.random() * 20000) + 25000,
-        })).map(item => ({
-          ...item,
-          netCashFlow: item.moneyIn - item.moneyOut
-        }));
+      // Past 3 months
+      startDate = new Date(now);
+      startDate.setMonth(now.getMonth() - 3);
+      endDate = now;
+      
+      // Create monthly labels
+      for (let i = 3; i >= 0; i--) {
+        const date = new Date(now);
+        date.setMonth(now.getMonth() - i);
+        labels.push(date.toLocaleDateString('en-US', { month: 'short' }));
+      }
+      break;
       
       case 'year':
-        // For year, show all months
-        return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map(month => ({
-          month,
-          moneyIn: Math.floor(Math.random() * 30000) + 50000,
-          moneyOut: Math.floor(Math.random() * 25000) + 40000,
-        })).map(item => ({
-          ...item,
-          netCashFlow: item.moneyIn - item.moneyOut
-        }));
+      // Past 12 months
+      startDate = new Date(now);
+      startDate.setFullYear(now.getFullYear() - 1);
+      endDate = now;
+      
+      // Create monthly labels for a year
+      for (let i = 11; i >= 0; i--) {
+        const date = new Date(now);
+        date.setMonth(now.getMonth() - i);
+        labels.push(date.toLocaleDateString('en-US', { month: 'short' }));
+      }
+      break;
       
       case 'month':
       default:
-        // Default - show weekly data for current month
-        return ['Week 1', 'Week 2', 'Week 3', 'Week 4'].map(week => ({
-          month: week,
-          moneyIn: Math.floor(Math.random() * 15000) + 10000,
-          moneyOut: Math.floor(Math.random() * 10000) + 8000,
-        })).map(item => ({
-          ...item,
-          netCashFlow: item.moneyIn - item.moneyOut
-        }));
-    }
-  };
+      // Past month, show weekly data
+      startDate = new Date(now);
+      startDate.setMonth(now.getMonth() - 1);
+      endDate = now;
+      
+      // Create weekly labels
+      labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
+      break;
+  }
   
-  // Generate transactions
-  const generateTransactions = () => {
-    const types = ['income', 'expense'];
-    const categories = {
-      income: ['Client Payment', 'Product Sales', 'Consulting', 'Dividends', 'Royalties'],
-      expense: ['Office Rent', 'Utilities', 'Payroll', 'Software Subscriptions', 'Travel', 'Marketing']
-    };
-    
-    const transactions = [];
-    // Number of transactions depends on timeframe
-    const count = timeframe === 'week' ? 7 : 
-                  timeframe === 'month' ? 15 : 
-                  timeframe === 'quarter' ? 25 : 30;
-    
-    for (let i = 0; i < count; i++) {
-      const type = types[Math.floor(Math.random() * types.length)];
-      const category = categories[type][Math.floor(Math.random() * categories[type].length)];
-      
-      // Amount depends on type and timeframe multiplier
-      const multiplier = timeframe === 'week' ? 1 : 
-                          timeframe === 'month' ? 2 : 
-                          timeframe === 'quarter' ? 3 : 4;
-      
-      const amount = type === 'income' 
-        ? Math.floor(Math.random() * 5000 * multiplier) + (1000 * multiplier)
-        : -(Math.floor(Math.random() * 3000 * multiplier) + (500 * multiplier));
-      
-      // Date range depends on timeframe
-      const date = new Date();
-      const maxDaysBack = timeframe === 'week' ? 7 : 
-                          timeframe === 'month' ? 30 : 
-                          timeframe === 'quarter' ? 90 : 365;
-      
-      date.setDate(date.getDate() - Math.floor(Math.random() * maxDaysBack));
-      
-      transactions.push({
-        id: i + 1,
-        date: date.toISOString().split('T')[0],
-        type,
-        category,
-        amount,
-        description: `${type === 'income' ? 'Payment received' : 'Payment made'} for ${category}`
-      });
-    }
-    
-    return transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
-  };
+  // Initialize data structure for the result
+  const result = labels.map(label => ({
+    month: label,
+    moneyIn: 0,
+    moneyOut: 0,
+    netCashFlow: 0
+  }));
   
-  // Calculate forecasts
-  const calculateForecasts = (monthlyData) => {
+  // Group and summarize invoices by date period
+  invoices.forEach(invoice => {
+    const invoiceDate = new Date(invoice.date || invoice.created_at || invoice.due_date);
+    
+    // Skip if invoice is outside the time range
+    if (invoiceDate < startDate || invoiceDate > endDate) return;
+    
+    if (invoice.status === 'paid') {
+      const amount = parseFloat(invoice.amount) || 0;
+      const index = getIndexForDate(invoiceDate, startDate, endDate, timeframe, labels.length);
+      
+      if (index >= 0 && index < result.length) {
+        result[index].moneyIn += amount;
+      }
+    }
+  });
+  
+  // Group and summarize expenses by date period
+  expenses.forEach(expense => {
+    const expenseDate = new Date(expense.date || expense.created_at);
+    
+    // Skip if expense is outside the time range
+    if (expenseDate < startDate || expenseDate > endDate) return;
+    
+    const amount = parseFloat(expense.amount) || 0;
+    const index = getIndexForDate(expenseDate, startDate, endDate, timeframe, labels.length);
+    
+    if (index >= 0 && index < result.length) {
+      result[index].moneyOut += amount;
+    }
+  });
+  
+  // Calculate net cash flow
+  result.forEach(item => {
+    item.netCashFlow = item.moneyIn - item.moneyOut;
+  });
+  
+  return result;
+}
+
+// Helper function to get index for a date within a period
+function getIndexForDate(date, startDate, endDate, timeframe, numPeriods) {
+  const totalMillis = endDate - startDate;
+  const dateMillis = date - startDate;
+  const normalizedPosition = dateMillis / totalMillis;
+  
+  // Special case for month timeframe (using weeks)
+  if (timeframe === 'month') {
+    // Divide the month into 4 weeks
+    const weekNumber = Math.floor(normalizedPosition * 4);
+    return Math.min(weekNumber, numPeriods - 1);
+  }
+  
+  // For other timeframes, calculate position based on normalized time
+  const periodIndex = Math.floor(normalizedPosition * numPeriods);
+  return Math.min(Math.max(0, periodIndex), numPeriods - 1);
+}
+
+// Helper function to filter transactions by timeframe
+function filterTransactionsByTimeframe(transactions, timeframe) {
+  const now = new Date();
+  let startDate;
+  
+  switch(timeframe) {
+    case 'week':
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - 7);
+      break;
+      
+    case 'quarter':
+      startDate = new Date(now);
+      startDate.setMonth(now.getMonth() - 3);
+      break;
+      
+    case 'year':
+      startDate = new Date(now);
+      startDate.setFullYear(now.getFullYear() - 1);
+      break;
+      
+    case 'month':
+    default:
+      startDate = new Date(now);
+      startDate.setMonth(now.getMonth() - 1);
+      break;
+  }
+  
+  // Filter transactions within the timeframe
+  return transactions
+    .filter(transaction => {
+      const transactionDate = new Date(transaction.date);
+      return transactionDate >= startDate && transactionDate <= now;
+    })
+    .slice(0, 20); // Limit to 20 transactions for performance
+}
+
+// Helper function to generate forecast
+function generateForecast(monthlyData) {
     // Calculate next month forecast based on average growth
     const sumCurrentData = monthlyData.reduce((sum, item) => sum + item.netCashFlow, 0);
+  const avgMonthly = sumCurrentData / monthlyData.length;
+  
+  // Calculate growth rate (if possible)
+  let growthRate = 0;
+  if (monthlyData.length >= 2) {
+    const recentHalf = monthlyData.slice(Math.floor(monthlyData.length / 2));
+    const olderHalf = monthlyData.slice(0, Math.floor(monthlyData.length / 2));
     
-    // Add some random variation
-    const nextMonthVariation = Math.random() * 0.2 - 0.1; // -10% to +10%
-    const nextMonth = Math.round(sumCurrentData * (1 + nextMonthVariation));
+    const recentAvg = recentHalf.reduce((sum, item) => sum + item.netCashFlow, 0) / recentHalf.length;
+    const olderAvg = olderHalf.reduce((sum, item) => sum + item.netCashFlow, 0) / olderHalf.length;
     
-    // 3-month average with some random variation
-    const threeMonthVariation = Math.random() * 0.15 - 0.05; // -5% to +10%
-    const threeMontAvg = Math.round(sumCurrentData * (1 + threeMonthVariation));
+    if (olderAvg !== 0) {
+      growthRate = (recentAvg - olderAvg) / Math.abs(olderAvg);
+    }
+  }
+  
+  // Apply growth rate to forecast
+  const nextMonth = Math.round(avgMonthly * (1 + growthRate));
+  
+  // 3-month average forecast
+  const threeMontAvg = Math.round(avgMonthly * (1 + growthRate * 2));
     
     return {
       nextMonth,
       threeMontAvg
     };
-  };
-  
-  // Generate insights
-  const generateInsights = (transactions) => {
-    // Group transactions by category
-    const incomeByCategory = {};
-    const expensesByCategory = {};
+}
+
+// Helper function to generate insights
+function generateInsights(invoices, expenses, transactions) {
+  // Find top income source
+  const incomeBySource = {};
+  invoices.forEach(invoice => {
+    const source = invoice.client_name || 'Unknown';
+    const amount = parseFloat(invoice.amount) || 0;
     
-    transactions.forEach(transaction => {
-      if (transaction.type === 'income') {
-        incomeByCategory[transaction.category] = (incomeByCategory[transaction.category] || 0) + transaction.amount;
+    if (incomeBySource[source]) {
+      incomeBySource[source] += amount;
       } else {
-        expensesByCategory[transaction.category] = (expensesByCategory[transaction.category] || 0) + Math.abs(transaction.amount);
+      incomeBySource[source] = amount;
       }
     });
     
-    // Find top income source
     let topIncomeSource = { name: 'Unknown', amount: 0 };
-    Object.entries(incomeByCategory).forEach(([category, amount]) => {
+  Object.entries(incomeBySource).forEach(([source, amount]) => {
       if (amount > topIncomeSource.amount) {
-        topIncomeSource = { name: category, amount };
+      topIncomeSource = { name: source, amount };
       }
     });
     
     // Find top expense
+  const expensesByCategory = {};
+  expenses.forEach(expense => {
+    const category = expense.category || 'Uncategorized';
+    const amount = parseFloat(expense.amount) || 0;
+    
+    if (expensesByCategory[category]) {
+      expensesByCategory[category] += amount;
+    } else {
+      expensesByCategory[category] = amount;
+    }
+  });
+  
     let topExpense = { name: 'Unknown', amount: 0 };
     Object.entries(expensesByCategory).forEach(([category, amount]) => {
       if (amount > topExpense.amount) {
@@ -207,47 +306,19 @@ function generateMockData(timeframe) {
       }
     });
     
-    // Determine cash flow trend
-    const cashflowTrend = Math.random() > 0.3 ? 'increasing' : 'decreasing';
+  // Determine cashflow trend
+  const totalIncome = invoices
+    .filter(invoice => invoice.status === 'paid')
+    .reduce((sum, invoice) => sum + (parseFloat(invoice.amount) || 0), 0);
+  
+  const totalExpense = expenses
+    .reduce((sum, expense) => sum + (parseFloat(expense.amount) || 0), 0);
+  
+  const cashflowTrend = totalIncome > totalExpense ? 'increasing' : 'decreasing';
     
     return {
       topIncomeSource,
       topExpense,
       cashflowTrend
-    };
-  };
-  
-  // Generate monthly data
-  const monthlyData = getMonthlyData();
-  
-  // Generate transactions
-  const transactions = generateTransactions();
-  
-  // Calculate total income and expense
-  const totalIncome = transactions
-    .filter(t => t.type === 'income')
-    .reduce((sum, t) => sum + t.amount, 0);
-    
-  const totalExpense = transactions
-    .filter(t => t.type === 'expense')
-    .reduce((sum, t) => sum + Math.abs(t.amount), 0);
-  
-  // Calculate cash balance
-  const balance = 16000 + (totalIncome - totalExpense);
-  
-  // Generate forecasts
-  const forecast = calculateForecasts(monthlyData);
-  
-  // Generate insights
-  const insights = generateInsights(transactions);
-  
-  return {
-    balance,
-    monthlyData,
-    transactions,
-    forecast,
-    insights,
-    totalIncome,
-    totalExpense
   };
 } 

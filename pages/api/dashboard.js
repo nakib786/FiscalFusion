@@ -1,177 +1,256 @@
+// Next.js API route for dashboard - connects directly to database
+import { ObjectId } from 'mongodb';
+import clientPromise from '../../lib/mongodb';
+
 export default async function handler(req, res) {
   try {
-    // Try to get data from backend with improved error handling
-    let data;
+    // Connect to MongoDB using the shared client
+    const client = await clientPromise;
+    const db = client.db();
     
-    try {
-      // Use a timeout to avoid hanging requests
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); 
-      
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/dashboard`, 
-        { 
-          signal: controller.signal,
-          headers: { 'Accept': 'application/json' }
-        }
-      );
-      
-      clearTimeout(timeoutId);
-      
-      // First check if response is ok
-      if (!response.ok) {
-        throw new Error(`Backend returned status ${response.status}`);
-      }
-      
-      // Check if response is JSON before trying to parse
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        throw new Error('Backend did not return valid JSON');
-      }
-      
-      data = await response.json();
-    } catch (backendError) {
-      console.error('Backend connection error:', backendError.message);
-      throw new Error(`Backend connection failed: ${backendError.message}`);
-    }
-
-    // Pass through the backend response
-    return res.status(200).json(data);
-  } catch (error) {
-    console.error('Dashboard API error:', error.message);
+    // Fetch data from different collections
+    const invoices = await db.collection('invoices').find({}).toArray();
+    const expenses = await db.collection('expenses').find({}).toArray();
+    const clients = await db.collection('clients').find({}).toArray();
+    const transactions = await db.collection('transactions').find({}).sort({ date: -1 }).limit(10).toArray();
     
-    // Fallback to mock data with enhanced structure for the business overview
-    const mockCashFlowData = [
-      { month: 'Feb', moneyIn: 15000, moneyOut: 10000 },
-      { month: 'Mar', moneyIn: 18000, moneyOut: 12000 },
-      { month: 'Apr', moneyIn: 17000, moneyOut: 11000 },
-      { month: 'May', moneyIn: 19000, moneyOut: 12000 }
-    ];
+    // Process the invoices data
+    const currentDate = new Date();
+    const paidInvoices = invoices.filter(invoice => invoice.status === 'paid');
+    const unpaidInvoices = invoices.filter(invoice => invoice.status === 'unpaid' || invoice.status === 'overdue');
+    const overdueInvoices = invoices.filter(invoice => {
+      const dueDate = new Date(invoice.due_date);
+      return invoice.status !== 'paid' && dueDate < currentDate;
+    });
+    const notDueYetInvoices = invoices.filter(invoice => {
+      const dueDate = new Date(invoice.due_date);
+      return invoice.status !== 'paid' && dueDate >= currentDate;
+    });
     
-    const mockExpensesBreakdown = [
-      { category: 'Rent & mortgage', amount: 6500 },
-      { category: 'Automotive', amount: 5250 },
-      { category: 'Meals & entertainment', amount: 2250 }
-    ];
+    // Calculate totals
+    const totalRevenue = paidInvoices.reduce((sum, invoice) => 
+      sum + (parseFloat(invoice.amount) || 0), 0);
     
-    const mockSalesData = [
-      { date: 'Mar 2', amount: 1000 },
-      { date: 'Mar 10', amount: 1500 },
-      { date: 'Mar 18', amount: 1800 },
-      { date: 'Mar 25', amount: 2000 },
-      { date: 'Mar 31', amount: 3500 }
-    ];
+    const totalExpenses = expenses.reduce((sum, expense) => 
+      sum + (parseFloat(expense.amount) || 0), 0);
     
-    const mockInvoices = [
-      { id: 1, client_name: 'Acme Corp', amount: '1500.00', status: 'paid', due_date: '2023-08-15' },
-      { id: 2, client_name: 'Globex Inc', amount: '2450.00', status: 'unpaid', due_date: '2023-09-01' },
-      { id: 3, client_name: 'Stark Industries', amount: '3200.00', status: 'paid', due_date: '2023-08-20' },
-      { id: 4, client_name: 'Wayne Enterprises', amount: '1800.00', status: 'overdue', due_date: '2023-08-10' },
-      { id: 5, client_name: 'Oscorp', amount: '950.00', status: 'unpaid', due_date: '2023-09-05' }
-    ];
+    const unpaidTotal = unpaidInvoices.reduce((sum, invoice) => 
+      sum + (parseFloat(invoice.amount) || 0), 0);
     
-    const mockExpenses = [
-      { id: 1, category: 'Office Supplies', amount: '120.50', date: '2023-08-18', vendor: 'Staples' },
-      { id: 2, category: 'Software', amount: '499.99', date: '2023-08-15', vendor: 'Adobe' },
-      { id: 3, category: 'Utilities', amount: '200.00', date: '2023-08-10', vendor: 'Electric Company' },
-      { id: 4, category: 'Travel', amount: '350.75', date: '2023-08-05', vendor: 'Airline Inc' },
-      { id: 5, category: 'Marketing', amount: '750.00', date: '2023-08-01', vendor: 'Ad Agency' }
-    ];
+    const overdueTotal = overdueInvoices.reduce((sum, invoice) => 
+      sum + (parseFloat(invoice.amount) || 0), 0);
     
-    // Calculate summary data from mock
-    const totalRevenue = mockInvoices
-      .filter(invoice => invoice.status === 'paid')
-      .reduce((sum, invoice) => sum + parseFloat(invoice.amount), 0);
+    const notDueYetTotal = notDueYetInvoices.reduce((sum, invoice) => 
+      sum + (parseFloat(invoice.amount) || 0), 0);
     
-    const totalExpenses = mockExpenses
-      .reduce((sum, expense) => sum + parseFloat(expense.amount), 0);
+    const paidTotal = paidInvoices.reduce((sum, invoice) => 
+      sum + (parseFloat(invoice.amount) || 0), 0);
     
-    const unpaidInvoices = mockInvoices
-      .filter(invoice => invoice.status === 'unpaid' || invoice.status === 'overdue')
-      .reduce((sum, invoice) => sum + parseFloat(invoice.amount), 0);
+    // Calculate deposited vs not deposited (for simplicity, consider 60% deposited)
+    const depositedTotal = paidTotal * 0.6;
+    const notDepositedTotal = paidTotal * 0.4;
     
-    // Generate additional cash flow data
-    const mockCashFlowInsights = {
-      topIncomeSource: { name: 'Client Services', amount: 8500 },
-      topExpense: { name: 'Office Rent', amount: 3200 },
-      cashflowTrend: 'increasing'
-    };
+    // Generate cash flow data (last 4 months)
+    const cashFlowData = generateCashFlowData(invoices, expenses);
     
-    const mockCashFlowForecast = {
-      nextMonth: 18500,
-      threeMontAvg: 17500
-    };
+    // Generate expenses breakdown by category
+    const expensesBreakdown = generateExpensesBreakdown(expenses);
     
-    const mockCashFlowTransactions = generateMockTransactions();
+    // Generate sales data
+    const salesData = generateSalesData(invoices);
     
-    // Helper function to generate transactions
-    function generateMockTransactions() {
-      const types = ['income', 'expense'];
-      const categories = {
-        income: ['Client Payment', 'Product Sales', 'Consulting', 'Dividends', 'Royalties'],
-        expense: ['Office Rent', 'Utilities', 'Payroll', 'Software Subscriptions', 'Travel', 'Marketing']
-      };
-      
-      const transactions = [];
-      for (let i = 0; i < 5; i++) {
-        const type = types[Math.floor(Math.random() * types.length)];
-        const category = categories[type][Math.floor(Math.random() * categories[type].length)];
-        const amount = type === 'income' 
-          ? Math.floor(Math.random() * 5000) + 1000 
-          : -(Math.floor(Math.random() * 3000) + 500);
-        
-        const date = new Date();
-        date.setDate(date.getDate() - Math.floor(Math.random() * 30));
-        
-        transactions.push({
-          id: i + 1,
-          date: date.toISOString().split('T')[0],
-          type,
-          category,
-          amount,
-          description: `${type === 'income' ? 'Payment received' : 'Payment made'} for ${category}`
-        });
-      }
-      
-      return transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
-    }
-    
+    // Return the aggregated data
     return res.status(200).json({
       success: true,
-      source: 'mock (api fallback)',
+      source: 'database',
       data: {
         // Financial summary data
         totalRevenue,
         totalExpenses,
         netIncome: totalRevenue - totalExpenses,
-        unpaidInvoices,
+        unpaidInvoices: unpaidTotal,
         
-        // Lists of invoices and expenses
-        latestInvoices: mockInvoices,
-        latestExpenses: mockExpenses,
+        // Lists of recent invoices and expenses
+        latestInvoices: invoices.slice(0, 5),
+        latestExpenses: expenses.slice(0, 5),
         
         // Business overview specific data
-        cashBalance: 16000,
-        cashFlowData: mockCashFlowData,
-        expensesBreakdown: mockExpensesBreakdown,
-        totalIncome: 100000,
-        overdueInvoices: 1525.50,
-        notDueYetInvoices: 3756.02,
-        paidInvoices: 3692.22,
-        notDepositedInvoices: 2062.52,
-        depositedInvoices: 1629.70,
-        totalSales: 3500,
-        salesData: mockSalesData,
-        checkingBalance: 12435.65,
-        checkingInQB: 4987.43,
-        mastercardBalance: -3435.65,
-        mastercardInQB: 157.72,
+        cashBalance: totalRevenue - totalExpenses,
+        cashFlowData,
+        expensesBreakdown,
+        totalIncome: totalRevenue,
+        overdueInvoices: overdueTotal,
+        notDueYetInvoices: notDueYetTotal,
+        paidInvoices: paidTotal,
+        notDepositedInvoices: notDepositedTotal,
+        depositedInvoices: depositedTotal,
+        totalSales: totalRevenue,
+        salesData,
         
-        // Additional cash flow data for integration
-        cashFlowInsights: mockCashFlowInsights,
-        cashFlowForecast: mockCashFlowForecast,
-        cashFlowTransactions: mockCashFlowTransactions
+        // Bank accounts (placeholder values - can be updated with real data if available)
+        checkingBalance: totalRevenue - totalExpenses * 0.8,
+        checkingInQB: (totalRevenue - totalExpenses * 0.8) * 0.4,
+        mastercardBalance: -totalExpenses * 0.2,
+        mastercardInQB: -totalExpenses * 0.2 * 0.05,
+        
+        // Additional cash flow data
+        cashFlowInsights: generateCashFlowInsights(invoices, expenses, transactions),
+        cashFlowTransactions: transactions
       }
     });
+  } catch (error) {
+    console.error('Dashboard API error:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve dashboard data',
+      message: error.message
+    });
   }
+}
+
+// Helper function to generate cash flow data based on real invoices and expenses
+function generateCashFlowData(invoices, expenses) {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const currentMonth = new Date().getMonth();
+  
+  // Create data for the last 4 months
+  const cashFlowData = [];
+  
+  for (let i = 3; i >= 0; i--) {
+    const monthIndex = (currentMonth - i + 12) % 12;
+    const monthName = months[monthIndex];
+    
+    // Get invoices and expenses for this month
+    const monthInvoices = invoices.filter(invoice => {
+      const invoiceDate = new Date(invoice.date || invoice.created_at || invoice.due_date);
+      return invoiceDate.getMonth() === monthIndex;
+    });
+    
+    const monthExpenses = expenses.filter(expense => {
+      const expenseDate = new Date(expense.date || expense.created_at);
+      return expenseDate.getMonth() === monthIndex;
+    });
+    
+    // Calculate totals
+    const moneyIn = monthInvoices.reduce((sum, invoice) => 
+      sum + (parseFloat(invoice.amount) || 0), 0);
+    
+    const moneyOut = monthExpenses.reduce((sum, expense) => 
+      sum + (parseFloat(expense.amount) || 0), 0);
+    
+    cashFlowData.push({
+      month: monthName,
+      moneyIn,
+      moneyOut
+    });
+  }
+  
+  return cashFlowData;
+}
+
+// Helper function to generate expenses breakdown by category
+function generateExpensesBreakdown(expenses) {
+  const categoryMap = {};
+  
+  // Group expenses by category
+  expenses.forEach(expense => {
+    const category = expense.category || 'Uncategorized';
+    const amount = parseFloat(expense.amount) || 0;
+    
+    if (categoryMap[category]) {
+      categoryMap[category] += amount;
+    } else {
+      categoryMap[category] = amount;
+    }
+  });
+  
+  // Convert to array and sort by amount
+  const breakdown = Object.entries(categoryMap).map(([category, amount]) => ({
+    category,
+    amount
+  })).sort((a, b) => b.amount - a.amount);
+  
+  // Return top 3 categories
+  return breakdown.slice(0, 3);
+}
+
+// Helper function to generate sales data
+function generateSalesData(invoices) {
+  // Sort invoices by date
+  const sortedInvoices = [...invoices].sort((a, b) => {
+    const dateA = new Date(a.date || a.created_at || a.due_date);
+    const dateB = new Date(b.date || b.created_at || b.due_date);
+    return dateB - dateA;
+  });
+  
+  // Take most recent 5 invoices with paid status
+  const recentPaidInvoices = sortedInvoices
+    .filter(invoice => invoice.status === 'paid')
+    .slice(0, 5);
+  
+  // Format the data
+  return recentPaidInvoices.map(invoice => {
+    const invoiceDate = new Date(invoice.date || invoice.created_at || invoice.due_date);
+    const month = invoiceDate.toLocaleString('default', { month: 'short' });
+    const day = invoiceDate.getDate();
+    
+    return {
+      date: `${month} ${day}`,
+      amount: parseFloat(invoice.amount) || 0
+    };
+  });
+}
+
+// Helper function to generate cash flow insights
+function generateCashFlowInsights(invoices, expenses, transactions) {
+  // Find top income source
+  const incomeBySource = {};
+  invoices.forEach(invoice => {
+    const source = invoice.client_name || 'Unknown';
+    const amount = parseFloat(invoice.amount) || 0;
+    
+    if (incomeBySource[source]) {
+      incomeBySource[source] += amount;
+    } else {
+      incomeBySource[source] = amount;
+    }
+  });
+  
+  let topIncomeSource = { name: 'Unknown', amount: 0 };
+  Object.entries(incomeBySource).forEach(([source, amount]) => {
+    if (amount > topIncomeSource.amount) {
+      topIncomeSource = { name: source, amount };
+    }
+  });
+  
+  // Find top expense
+  const expensesByCategory = {};
+  expenses.forEach(expense => {
+    const category = expense.category || 'Uncategorized';
+    const amount = parseFloat(expense.amount) || 0;
+    
+    if (expensesByCategory[category]) {
+      expensesByCategory[category] += amount;
+    } else {
+      expensesByCategory[category] = amount;
+    }
+  });
+  
+  let topExpense = { name: 'Unknown', amount: 0 };
+  Object.entries(expensesByCategory).forEach(([category, amount]) => {
+    if (amount > topExpense.amount) {
+      topExpense = { name: category, amount };
+    }
+  });
+  
+  // Determine cashflow trend
+  const totalIncome = invoices.reduce((sum, invoice) => sum + (parseFloat(invoice.amount) || 0), 0);
+  const totalExpense = expenses.reduce((sum, expense) => sum + (parseFloat(expense.amount) || 0), 0);
+  const cashflowTrend = totalIncome > totalExpense ? 'increasing' : 'decreasing';
+  
+  return {
+    topIncomeSource,
+    topExpense,
+    cashflowTrend
+  };
 } 

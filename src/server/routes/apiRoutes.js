@@ -7,6 +7,7 @@ const {
   getUserApiKeys, 
   revokeApiKey 
 } = require('../utils/apiKeys');
+const { verifyToken } = require('../middleware/jwtAuth');
 
 // Public route - no authentication needed
 router.get('/status', (req, res) => {
@@ -107,11 +108,15 @@ router.delete('/keys/:keyId', async (req, res) => {
 router.use('/protected', apiKeyAuth);
 
 // Basic protected route
-router.get('/protected', (req, res) => {
+router.get('/protected', verifyToken, (req, res) => {
   res.json({
     success: true,
-    message: 'You have access to this protected resource',
-    user: req.user
+    message: 'You have accessed a protected route',
+    user: {
+      id: req.user.id,
+      email: req.user.email,
+      name: req.user.name
+    }
   });
 });
 
@@ -150,6 +155,34 @@ router.post('/protected/data', (req, res) => {
     success: true,
     message: 'Data processed successfully',
     data: processedData
+  });
+});
+
+// Get user profile from JWT token
+router.get('/profile', verifyToken, (req, res) => {
+  res.json({
+    success: true,
+    profile: req.user
+  });
+});
+
+// Example protected data endpoint
+router.get('/data', verifyToken, (req, res) => {
+  // In a real application, this would fetch data from a database
+  // based on the authenticated user's permissions
+  const userData = {
+    transactions: [
+      { id: 1, amount: 50.00, description: 'Groceries', date: '2023-09-15' },
+      { id: 2, amount: 120.00, description: 'Electricity bill', date: '2023-09-10' },
+      { id: 3, amount: 25.00, description: 'Subscription', date: '2023-09-05' }
+    ],
+    balance: 1250.75,
+    lastUpdated: new Date().toISOString()
+  };
+  
+  res.json({
+    success: true,
+    data: userData
   });
 });
 

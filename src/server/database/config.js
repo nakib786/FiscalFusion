@@ -23,7 +23,7 @@ const pool = new Pool({
 // Global database connection status
 let isConnected = false;
 
-// Test the database connection but don't block server startup
+// Test the database connection
 const testConnection = async () => {
   try {
     const client = await pool.connect();
@@ -34,7 +34,6 @@ const testConnection = async () => {
     return true;
   } catch (err) {
     console.error('Database connection error:', err);
-    console.warn('Using mock data instead of database connection');
     isConnected = false;
     return false;
   }
@@ -67,8 +66,7 @@ const query = async (text, params) => {
     return result;
   } catch (err) {
     console.error('Database query error:', err);
-    console.warn('Database operation failed, using mock data');
-    return { rows: [] };
+    throw err; // Rethrow to let the caller handle it
   }
 };
 
