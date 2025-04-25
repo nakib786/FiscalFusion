@@ -1,6 +1,5 @@
 import React from 'react';
 import { Html, Head, Main, NextScript } from 'next/document';
-import Script from 'next/script';
 
 export default function Document() {
   return (
@@ -19,23 +18,6 @@ export default function Document() {
       <body className="bg-[#050505] text-white">
         <Main />
         <NextScript />
-        <Script
-          id="tawk-script"
-          strategy="afterInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `
-              var Tawk_API=Tawk_API||{}, Tawk_LoadStart=new Date();
-              (function(){
-                var s1=document.createElement("script"),s0=document.getElementsByTagName("script")[0];
-                s1.async=true;
-                s1.src='https://embed.tawk.to/67ffeda8d825181910e0cd9c/1ip12mtt0';
-                s1.charset='UTF-8';
-                s1.setAttribute('crossorigin','*');
-                s0.parentNode.insertBefore(s1,s0);
-              })();
-            `,
-          }}
-        />
       </body>
     </Html>
   );
