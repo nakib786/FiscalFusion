@@ -2,15 +2,12 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
-  "/": "pages/index.js",
   "/dashboard": "pages/dashboard.js",
   "/api/dashboard": "pages/api/dashboard.js",
   "/clients": "pages/clients.js",
+  "/api/clients": "pages/api/clients.js",
   "/invoices": "pages/invoices.js",
   "/api/invoices": "pages/api/invoices.js",
-  "/api/expenses": "pages/api/expenses.js",
-  "/api/clients": "pages/api/clients.js",
   "/reports": "pages/reports.js",
-  "/expenses": "pages/expenses.js",
   "/api/reports": "pages/api/reports.js"
 }

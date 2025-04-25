@@ -4,17 +4,54 @@ import clientPromise from '../../lib/mongodb';
 
 export default async function handler(req, res) {
   try {
+    console.log('Dashboard API: Connecting to MongoDB Atlas...');
+    
     // Connect to MongoDB using the shared client
     const client = await clientPromise;
-    const db = client.db();
+    console.log('Dashboard API: MongoDB connection established');
     
-    // Fetch data from different collections
-    const invoices = await db.collection('invoices').find({}).toArray();
-    const expenses = await db.collection('expenses').find({}).toArray();
-    const clients = await db.collection('clients').find({}).toArray();
-    const transactions = await db.collection('transactions').find({}).sort({ date: -1 }).limit(10).toArray();
+    const db = client.db();
+    console.log('Dashboard API: Database accessed');
+    
+    // Fetch data from different collections with proper error handling
+    console.log('Dashboard API: Fetching collections data...');
+    
+    let invoices = [], expenses = [], clients = [], transactions = [];
+    
+    try {
+      invoices = await db.collection('invoices').find({}).toArray();
+      console.log(`Dashboard API: Fetched ${invoices.length} invoices`);
+    } catch (err) {
+      console.error('Dashboard API: Error fetching invoices:', err);
+      invoices = [];
+    }
+    
+    try {
+      expenses = await db.collection('expenses').find({}).toArray();
+      console.log(`Dashboard API: Fetched ${expenses.length} expenses`);
+    } catch (err) {
+      console.error('Dashboard API: Error fetching expenses:', err);
+      expenses = [];
+    }
+    
+    try {
+      clients = await db.collection('clients').find({}).toArray();
+      console.log(`Dashboard API: Fetched ${clients.length} clients`);
+    } catch (err) {
+      console.error('Dashboard API: Error fetching clients:', err);
+      clients = [];
+    }
+    
+    try {
+      transactions = await db.collection('transactions').find({}).sort({ date: -1 }).limit(10).toArray();
+      console.log(`Dashboard API: Fetched ${transactions.length} transactions`);
+    } catch (err) {
+      console.error('Dashboard API: Error fetching transactions:', err);
+      transactions = [];
+    }
     
     // Process the invoices data
+    console.log('Dashboard API: Processing data...');
     const currentDate = new Date();
     const paidInvoices = invoices.filter(invoice => invoice.status === 'paid');
     const unpaidInvoices = invoices.filter(invoice => invoice.status === 'unpaid' || invoice.status === 'overdue');
@@ -60,6 +97,7 @@ export default async function handler(req, res) {
     const salesData = generateSalesData(invoices);
     
     // Return the aggregated data
+    console.log('Dashboard API: Returning successful response');
     return res.status(200).json({
       success: true,
       source: 'database',
@@ -99,11 +137,13 @@ export default async function handler(req, res) {
       }
     });
   } catch (error) {
-    console.error('Dashboard API error:', error.message);
+    console.error('Dashboard API error:', error);
+    console.error('Error stack:', error.stack);
     return res.status(500).json({
       success: false,
       error: 'Failed to retrieve dashboard data',
-      message: error.message
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 }

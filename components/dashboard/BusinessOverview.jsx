@@ -79,55 +79,74 @@ export default function BusinessOverview() {
       setError(null);
       
       try {
-        // Try to get data from backend
-        const response = await fetch('/api/dashboard');
+        // Try to get data from backend with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+        
+        console.log('Fetching dashboard data...');
+        const response = await fetch('/api/dashboard', {
+          signal: controller.signal,
+          headers: {
+            'Cache-Control': 'no-cache',
+          }
+        });
+        
+        clearTimeout(timeoutId);
+        
         if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Error response:', errorText);
           throw new Error(`Error: ${response.status}`);
         }
         
         const data = await response.json();
+        console.log('Dashboard data received:', data.success);
+        
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to fetch data');
+        }
         
         // Format the data to match our state structure
         const formattedData = {
           cashFlow: {
-            balance: data.data.cashBalance || 16000,
-            monthlyData: data.data.cashFlowData || generateMockCashFlowData(),
-            insights: data.data.cashFlowInsights || {
+            balance: data.data?.cashBalance || 16000,
+            monthlyData: data.data?.cashFlowData || generateMockCashFlowData(),
+            insights: data.data?.cashFlowInsights || {
               topIncomeSource: { name: 'Client Services', amount: 8500 },
               topExpense: { name: 'Office Rent', amount: 3200 },
               cashflowTrend: 'increasing'
             },
-            recentTransactions: data.data.cashFlowTransactions || []
+            recentTransactions: data.data?.cashFlowTransactions || []
           },
           expenses: {
-            total: data.data.totalExpenses || 14000,
-            breakdown: data.data.expensesBreakdown || generateMockExpensesBreakdown()
+            total: data.data?.totalExpenses || 14000,
+            breakdown: data.data?.expensesBreakdown || generateMockExpensesBreakdown()
           },
           profitAndLoss: {
-            netIncome: data.data.netIncome || 20000,
-            income: data.data.totalIncome || 100000,
-            expenses: data.data.totalExpenses || 80000
+            netIncome: data.data?.netIncome || 20000,
+            income: data.data?.totalIncome || 100000,
+            expenses: data.data?.totalExpenses || 80000
           },
           invoices: {
-            unpaid: data.data.unpaidInvoices || 5281.52,
-            overdue: data.data.overdueInvoices || 1525.50,
-            notDueYet: data.data.notDueYetInvoices || 3756.02,
-            paid: data.data.paidInvoices || 3692.22,
-            notDeposited: data.data.notDepositedInvoices || 2062.52,
-            deposited: data.data.depositedInvoices || 1629.70
+            unpaid: data.data?.unpaidInvoices || 5281.52,
+            overdue: data.data?.overdueInvoices || 1525.50,
+            notDueYet: data.data?.notDueYetInvoices || 3756.02,
+            paid: data.data?.paidInvoices || 3692.22,
+            notDeposited: data.data?.notDepositedInvoices || 2062.52,
+            deposited: data.data?.depositedInvoices || 1629.70
           },
           sales: {
-            total: data.data.totalSales || 3500,
-            monthlyData: data.data.salesData || generateMockSalesData()
+            total: data.data?.totalSales || 3500,
+            monthlyData: data.data?.salesData || generateMockSalesData()
           },
           bankAccounts: {
             checking: {
-              balance: data.data.checkingBalance || 12435.65,
-              inQB: data.data.checkingInQB || 4987.43
+              balance: data.data?.checkingBalance || 12435.65,
+              inQB: data.data?.checkingInQB || 4987.43
             },
             mastercard: {
-              balance: data.data.mastercardBalance || -3435.65,
-              inQB: data.data.mastercardInQB || 157.72
+              balance: data.data?.mastercardBalance || -3435.65,
+              inQB: data.data?.mastercardInQB || 157.72
             }
           }
         };
@@ -135,9 +154,9 @@ export default function BusinessOverview() {
         setOverviewData(formattedData);
       } catch (err) {
         console.error('Failed to fetch business overview data:', err);
-        setError('Could not load business overview data');
+        setError(`Could not load business overview data: ${err.message}`);
         
-        // Set mock data
+        // Set mock data as fallback
         setOverviewData({
           cashFlow: {
             balance: 16000,
