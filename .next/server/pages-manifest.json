@@ -3,11 +3,8 @@
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
   "/dashboard": "pages/dashboard.js",
-  "/api/dashboard": "pages/api/dashboard.js",
   "/clients": "pages/clients.js",
-  "/api/clients": "pages/api/clients.js",
   "/invoices": "pages/invoices.js",
-  "/api/invoices": "pages/api/invoices.js",
-  "/reports": "pages/reports.js",
-  "/api/reports": "pages/api/reports.js"
+  "/expenses": "pages/expenses.js",
+  "/api/expenses": "pages/api/expenses.js"
 }
