@@ -52,6 +52,7 @@
     "jspdf-autotable": "^5.0.2",
     "lucide-react": "^0.488.0",
     "mongodb": "^6.16.0",
+    "mongodb-tools": "^1.0.6",
     "next": "^15.3.0",
     "oauth": "^0.10.2",
     "pg": "^8.14.1",

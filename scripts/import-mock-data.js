@@ -5,6 +5,8 @@
 
 const { MongoClient } = require('mongodb');
 const { v4: uuidv4 } = require('uuid');
+const dotenv = require('dotenv');
+dotenv.config();
 
 // Mock data to import
 const mockData = {
@@ -73,7 +75,7 @@ mockData.expenses = mockData.expenses.map(expense => ({
 
 async function importData() {
   console.log('Connecting to MongoDB...');
-  const client = await MongoClient.connect('mongodb://localhost:27017', { useUnifiedTopology: true });
+  const client = await MongoClient.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017', { useUnifiedTopology: true });
   
   try {
     const db = client.db('fiscalfusion');

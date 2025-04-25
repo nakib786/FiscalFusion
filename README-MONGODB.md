@@ -1,54 +1,32 @@
-# MongoDB Integration for FiscalFusion
+# MongoDB Atlas Integration for FiscalFusion
 
-This project now uses MongoDB 8.0 as its database backend. The following instructions will help you set up and configure MongoDB for this application.
-
-## Prerequisites
-
-1. Install MongoDB 8.0 on your system:
-   - Visit [MongoDB Download Center](https://www.mongodb.com/try/download/community)
-   - Download MongoDB 8.0 for your operating system
-   - Follow the installation instructions
+This project now uses MongoDB Atlas as its database backend. The migration from the local MongoDB to MongoDB Atlas has been completed.
 
 ## Configuration
 
-1. Create a `.env` file in the root directory of the project with the following content:
+The `.env` file in the root directory of the project contains the MongoDB Atlas connection string:
 
 ```
-# Server Configuration
-PORT=8080
-NODE_ENV=development
-
 # MongoDB Configuration
-MONGODB_URI=mongodb://localhost:27017/fiscalfusion
-
-# JWT Secret
-JWT_SECRET=your_jwt_secret_key_here
+MONGODB_URI=mongodb+srv://nakib786:Canada%402025@cluster0.42fxaw4.mongodb.net/fiscalfusion
 ```
 
-2. Adjust the `MONGODB_URI` value if your MongoDB instance is running on a different host, port, or if you wish to use a different database name.
+## MongoDB Atlas Information
 
-## Setup Database
-
-The project includes a script to set up the MongoDB database and import initial data:
-
-```bash
-npm run setup-mongodb
-```
-
-This will:
-1. Create all necessary collections
-2. Add appropriate indexes
-3. Import sample data (clients, invoices, etc.)
+- **Cluster Name**: `atlas-kpc2tu-shard-0`
+- **Hosts**:
+  - `ac-beuwz29-shard-00-00.42fxaw4.mongodb.net:27017`
+  - `ac-beuwz29-shard-00-01.42fxaw4.mongodb.net:27017`
+  - `ac-beuwz29-shard-00-02.42fxaw4.mongodb.net:27017`
+- **MongoDB Version**: `8.0.8 Atlas`
 
 ## Running the Application
 
-After setting up MongoDB, you can start the application with:
+To start the application:
 
 ```bash
 npm run start:full
 ```
-
-This command will first run the MongoDB setup script and then start the application.
 
 For development mode with hot reloading:
 
@@ -58,41 +36,36 @@ npm run dev:full
 
 ## Features
 
-The MongoDB integration includes:
+The MongoDB Atlas integration includes:
 
 1. Proper document schemas with appropriate indexes
-2. MongoDB aggregation for complex queries
+2. MongoDB aggregation for complex queries  
 3. Transaction support for multi-document operations
 4. Proper error handling for database operations
 5. Connection pooling for efficient database access
+6. Replica set support for high availability
+7. Automated backups and recovery
 
 ## Compatibility
 
-This implementation is based on MongoDB 8.0, which includes several important improvements:
+This implementation is based on MongoDB 8.0 Atlas, which includes several important improvements:
 
 - Enhanced query performance
 - Support for transactions
 - Improved security features
 - Vector search capabilities
 - Batch processing for multi-document operations
+- Distributed architecture for high availability
+- Automatic scaling
 
 ## Troubleshooting
 
-If you encounter issues with the MongoDB connection:
+If you encounter issues with the MongoDB Atlas connection:
 
-1. Ensure MongoDB is running:
-   ```bash
-   mongod --version
-   ```
-
-2. Check if you can connect to the MongoDB instance:
-   ```bash
-   mongosh
-   ```
-
-3. Verify your MongoDB URI in the `.env` file
-
-4. If experiencing permission issues, ensure your MongoDB user has the appropriate privileges.
+1. Check if you can connect to the MongoDB Atlas instance using MongoDB Compass
+2. Verify your MongoDB Atlas URI in the `.env` file
+3. Ensure your IP address is whitelisted in MongoDB Atlas
+4. Check if your user has the appropriate database access privileges
 
 ## CMS Integration
 
