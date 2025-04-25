@@ -9,6 +9,8 @@ const testimonials = [
     author: "Sarah Johnson",
     position: "Small Business Owner",
     avatar: "/images/testimonials/avatar-1.jpg",
+    avatarColor: "bg-blue-600",
+    initials: "SJ",
     rating: 5,
   },
   {
@@ -17,6 +19,8 @@ const testimonials = [
     author: "Michael Chen",
     position: "Financial Analyst",
     avatar: "/images/testimonials/avatar-2.jpg",
+    avatarColor: "bg-purple-600",
+    initials: "MC",
     rating: 5,
   },
   {
@@ -25,6 +29,8 @@ const testimonials = [
     author: "Jessica Williams",
     position: "Marketing Director",
     avatar: "/images/testimonials/avatar-3.jpg",
+    avatarColor: "bg-green-600",
+    initials: "JW",
     rating: 4,
   },
   {
@@ -33,6 +39,8 @@ const testimonials = [
     author: "David Rodriguez",
     position: "Software Engineer",
     avatar: "/images/testimonials/avatar-4.jpg",
+    avatarColor: "bg-amber-600",
+    initials: "DR",
     rating: 5,
   },
 ];
@@ -104,14 +112,8 @@ const TestimonialCarousel = () => {
                 <div className="bg-gradient-to-br from-gray-800 to-gray-900 p-8 rounded-2xl border border-gray-700 shadow-xl w-full max-w-2xl mx-auto">
                   <div className="flex justify-between items-start mb-6">
                     <div className="flex items-center">
-                      <div className="w-12 h-12 rounded-full overflow-hidden mr-4 bg-gray-700 relative">
-                        <Image
-                          src={testimonial.avatar}
-                          alt={testimonial.author}
-                          width={48}
-                          height={48}
-                          className="object-cover"
-                        />
+                      <div className={`w-12 h-12 rounded-full overflow-hidden mr-4 ${testimonial.avatarColor} relative flex items-center justify-center text-white font-medium`}>
+                        {testimonial.initials}
                       </div>
                       <div>
                         <h4 className="text-lg font-semibold text-white">

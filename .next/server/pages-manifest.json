@@ -2,9 +2,5 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
-  "/dashboard": "pages/dashboard.js",
-  "/clients": "pages/clients.js",
-  "/invoices": "pages/invoices.js",
-  "/expenses": "pages/expenses.js",
-  "/api/expenses": "pages/api/expenses.js"
+  "/": "pages/index.js"
 }
